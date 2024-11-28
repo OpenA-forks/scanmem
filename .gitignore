@@ -11,6 +11,7 @@ m4
 autom4te.cache
 config.h*
 configure
+configure~
 Makefile
 Makefile.in
 aclocal.m4
@@ -41,7 +42,7 @@ gui/org.freedesktop.gameconqueror.policy
 gui/org.freedesktop.gameconqueror.policy.in
 
 # Translations
-po/.intltool-merge-cache
+po/.intltool-merge-cache*
 po/GameConqueror.pot
 po/Makefile.in.in
 po/POTFILES

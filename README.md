@@ -1,4 +1,4 @@
-# ![](https://raw.githubusercontent.com/scanmem/scanmem/main/gui/GameConqueror_72x72.png)scanmem & GameConqueror
+# <img src="https://github.com/OpenA-forks/scanmem/blob/main/gui/icons/GameConqueror.svg?raw=true" width="72">scanmem & GameConqueror
 
 [![Build Status](https://travis-ci.org/scanmem/scanmem.svg?branch=main)](https://travis-ci.org/scanmem/scanmem)
 [![Coverity Status](https://scan.coverity.com/projects/8565/badge.svg?flat=1")](https://scan.coverity.com/projects/scanmem)

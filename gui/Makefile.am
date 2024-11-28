@@ -4,8 +4,7 @@ gameconquerordir=$(datadir)/gameconqueror
 python_PYTHON = scanmem.py consts.py misc.py hexview.py GameConqueror.py
 pythondir = $(gameconquerordir)
 dist_bin_SCRIPTS = gameconqueror
-dist_gameconqueror_DATA = GameConqueror.ui GameConqueror_128x128.png \
-                          GameConqueror_72x72.png GameConqueror_48x48.png
+dist_gameconqueror_DATA = GameConqueror.ui icons/GameConqueror.svg
 dist_desktop_in_files = org.scanmem.gameconqueror.desktop.in
 dist_desktop_DATA = $(dist_desktop_in_files:.desktop.in=.desktop)
 @INTLTOOL_DESKTOP_RULE@

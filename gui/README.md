@@ -1,4 +1,4 @@
-# ![](https://raw.githubusercontent.com/scanmem/scanmem/main/gui/GameConqueror_48x48.png) GameConqueror
+# <img src="https://github.com/OpenA-forks/scanmem/blob/main/gui/icons/GameConqueror.svg?raw=true" width="48"> GameConqueror
 
 Game Conqueror is a graphical game cheating tool under Linux, a frontend for scanmem.
 
