@@ -2,7 +2,7 @@ AC_INIT([scanmem],[0.18~dev],[https://github.com/scanmem/scanmem])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([-Wall -Werror -Wno-extra-portability foreign])
 AC_CONFIG_SRCDIR([main.c])
-AC_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 AC_USE_SYSTEM_EXTENSIONS
 AC_HEADER_STDBOOL
 
@@ -182,7 +182,6 @@ AS_IF([test "x$enable_gui" = "xyes"], [
   AC_CONFIG_FILES([
     gui/Makefile
     gui/icons/Makefile
-    gui/consts.py
     gui/gameconqueror
     gui/org.freedesktop.gameconqueror.policy.in
   ])

@@ -1,10 +1,22 @@
-#!/bin/bash
+#!/bin/sh
 
-DATADIR=@PKGDATADIR@
+# constants 
+# should be defined by autotools
+export SCANMEM_LIBDIR="@LIBDIR@"
+export SCANMEM_VERSION="@VERSION@"
+export SCANMEM_GETTEXT="@GETTEXT_PACKAGE@"
+export SCANMEM_LOCALEDIR="@LOCALEDIR@"
+export SCANMEM_BUGREPORT="@PACKAGE_BUGREPORT@"
+
+DATADIR="@PKGDATADIR@"
 
 PKEXEC=$(command -v "pkexec")
 if [ -n "$PKEXEC" ]; then
-    $PKEXEC $DATADIR/GameConqueror.py "$@"
+    "$PKEXEC" env SCANMEM_LIBDIR=$SCANMEM_LIBDIR\
+                  SCANMEM_VERSION=$SCANMEM_VERSION\
+                  SCANMEM_GETTEXT=$SCANMEM_GETTEXT\
+                  SCANMEM_LOCALEDIR=$SCANMEM_LOCALEDIR\
+                  SCANMEM_BUGREPORT=$SCANMEM_BUGREPORT "$DATADIR/GameConqueror.py" "$@"
 else
     echo "install policykit!"
 fi

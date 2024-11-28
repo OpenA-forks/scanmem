@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
     Game Conqueror: a graphical game cheating tool, using scanmem as its backend
     
@@ -39,7 +39,12 @@ from gi.repository import Gdk
 from gi.repository import GObject
 from gi.repository import GLib
 
-from consts import *
+BUGREPORT  = os.environ['SCANMEM_BUGREPORT']
+GETTEXTPKG = os.environ['SCANMEM_GETTEXT']
+LOCALEDIR  = os.environ['SCANMEM_LOCALEDIR']
+VERSION    = os.environ['SCANMEM_VERSION']
+LIBDIR     = os.environ['SCANMEM_LIBDIR']
+
 from hexview import HexView
 from scanmem import Scanmem
 import misc
@@ -49,8 +54,8 @@ import gettext
 
 # In some locale, ',' is used in float numbers
 locale.setlocale(locale.LC_NUMERIC, 'C')
-locale.bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR);
-gettext.install(GETTEXT_PACKAGE, LOCALEDIR, names=('_'));
+locale.bindtextdomain(GETTEXTPKG, LOCALEDIR)
+gettext.install(GETTEXTPKG, LOCALEDIR, names=('_'))
 
 CLIPBOARD = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 WORK_DIR = os.path.dirname(sys.argv[0])
@@ -70,7 +75,7 @@ MEMORY_TYPES = ['int8', 'uint8',
                 'float32', 'float64',
                 'bytearray', 'string']
 
-SEARCH_SCOPE_NAMES = [_('Basic'), _('Normal'), _('ReadOnly'), _('Full')]
+SEARCH_SCOPE_NAMES = ['Basic', 'Normal', 'ReadOnly', 'Full']
 
 # convert type names used by scanmem into ours
 TYPENAMES_S2G = {'I64':'int64'
@@ -117,12 +122,17 @@ TYPESIZES = {'int8':1
             ,'float64':8
             }
 
+SETTINGS = {'scan_data_type':'int32'
+           ,'lock_data_type':'int32'
+           ,'search_scope'  : 1      # normal
+           }
+
 class GameConqueror():
     def __init__(self):
         ##################################
         # init GUI
         self.builder = Gtk.Builder()
-        self.builder.set_translation_domain(GETTEXT_PACKAGE)
+        self.builder.set_translation_domain(GETTEXTPKG)
         self.builder.add_from_file(os.path.join(WORK_DIR, 'GameConqueror.ui'))
 
         self.main_window = self.builder.get_object('MainWindow')
@@ -178,19 +188,19 @@ class GameConqueror():
         self.scanresult_liststore = Gtk.ListStore(GObject.TYPE_UINT64, str,   str,  bool,  GObject.TYPE_UINT64, str,         int)
         self.scanresult_tv.set_model(self.scanresult_liststore)
         # init columns
-        misc.treeview_append_column(self.scanresult_tv, _('Address'), 0, hex_col=0,
+        misc.treeview_append_column(self.scanresult_tv, 'Address', 0, hex_col=0,
                                     attributes=(('text',0),),
                                     properties = (('family', 'monospace'),)
                                    )
-        misc.treeview_append_column(self.scanresult_tv, _('Value'), 1,
+        misc.treeview_append_column(self.scanresult_tv, 'Value', 1,
                                     attributes=(('text',1),),
                                     properties = (('family', 'monospace'),)
                                    )
-        misc.treeview_append_column(self.scanresult_tv, _('Offset'), 4, hex_col=4,
+        misc.treeview_append_column(self.scanresult_tv, 'Offset', 4, hex_col=4,
                                     attributes=(('text',4),),
                                     properties = (('family', 'monospace'),)
                                    )
-        misc.treeview_append_column(self.scanresult_tv, _('Region Type'), 5,
+        misc.treeview_append_column(self.scanresult_tv, 'Region Type', 5,
                                     attributes=(('text',5),),
                                     properties = (('family', 'monospace'),)
                                    )
@@ -202,7 +212,7 @@ class GameConqueror():
         self.cheatlist_tv.set_model(self.cheatlist_liststore)
         self.cheatlist_editing = False
         # Lock
-        misc.treeview_append_column(self.cheatlist_tv, _('Lock'), 0
+        misc.treeview_append_column(self.cheatlist_tv, 'Lock', 0
                                         ,renderer_class = Gtk.CellRendererToggle
                                         ,attributes = (('active',0),)
                                         ,properties = (('activatable', True)
@@ -211,7 +221,7 @@ class GameConqueror():
                                         ,signals = (('toggled', self.cheatlist_toggle_lock_cb),)
                                    )
         # Description
-        misc.treeview_append_column(self.cheatlist_tv, _('Description'), 1
+        misc.treeview_append_column(self.cheatlist_tv, 'Description', 1
                                         ,attributes = (('text',1),)
                                         ,properties = (('editable', True),)
                                         ,signals = (('edited', self.cheatlist_edit_description_cb),
@@ -219,12 +229,12 @@ class GameConqueror():
                                                     ('editing-canceled', self.cheatlist_edit_cancel),)
                                    )
         # Address
-        misc.treeview_append_column(self.cheatlist_tv, _('Address'), 2, hex_col=2
+        misc.treeview_append_column(self.cheatlist_tv, 'Address', 2, hex_col=2
                                         ,attributes = (('text',2),)
                                         ,properties = (('family', 'monospace'),)
                                    )
         # Type
-        misc.treeview_append_column(self.cheatlist_tv, _('Type'), 3
+        misc.treeview_append_column(self.cheatlist_tv, 'Type', 3
                                         ,renderer_class = Gtk.CellRendererCombo
                                         ,attributes = (('text',3),)
                                         ,properties = (('editable', True)
@@ -236,7 +246,7 @@ class GameConqueror():
                                                     ('editing-canceled', self.cheatlist_edit_cancel),)
                                    )
         # Value 
-        misc.treeview_append_column(self.cheatlist_tv, _('Value'), 4
+        misc.treeview_append_column(self.cheatlist_tv, 'Value', 4
                                         ,attributes = (('text',4),)
                                         ,properties = (('editable', True)
                                                       ,('family', 'monospace'))
@@ -261,12 +271,12 @@ class GameConqueror():
                                         ,attributes = (('text',0),)
                                    )
         # second col
-        misc.treeview_append_column(self.processlist_tv, _('User'), 1
+        misc.treeview_append_column(self.processlist_tv, 'User', 1
                                         ,attributes = (('text',1),)
                                    )
 
         # third col
-        misc.treeview_append_column(self.processlist_tv, _('Process'), 2
+        misc.treeview_append_column(self.processlist_tv, 'Process', 2
                                         ,attributes = (('text',2),)
                                    )
 
@@ -297,17 +307,17 @@ class GameConqueror():
 
         # init popup menu for scanresult
         self.scanresult_popup = Gtk.Menu()
-        misc.menu_append_item(self.scanresult_popup, _('Add to cheat list'), self.scanresult_popup_cb, 'add_to_cheat_list')
-        misc.menu_append_item(self.scanresult_popup, _('Browse this address'), self.scanresult_popup_cb, 'browse_this_address')
-        misc.menu_append_item(self.scanresult_popup, _('Scan for this address'), self.scanresult_popup_cb, 'scan_for_this_address')
-        misc.menu_append_item(self.scanresult_popup, _('Remove this match'), self.scanresult_delete_selected_matches)
+        misc.menu_append_item(self.scanresult_popup, 'Add to cheat list', self.scanresult_popup_cb, 'add_to_cheat_list')
+        misc.menu_append_item(self.scanresult_popup, 'Browse this address', self.scanresult_popup_cb, 'browse_this_address')
+        misc.menu_append_item(self.scanresult_popup, 'Scan for this address', self.scanresult_popup_cb, 'scan_for_this_address')
+        misc.menu_append_item(self.scanresult_popup, 'Remove this match', self.scanresult_delete_selected_matches)
         self.scanresult_popup.show_all()
 
         # init popup menu for cheatlist
         self.cheatlist_popup = Gtk.Menu()
-        misc.menu_append_item(self.cheatlist_popup, _('Browse this address'), self.cheatlist_popup_cb, 'browse_this_address')
-        misc.menu_append_item(self.cheatlist_popup, _('Copy address'), self.cheatlist_popup_cb, 'copy_address')
-        misc.menu_append_item(self.cheatlist_popup, _('Remove this entry'), self.cheatlist_popup_cb, 'remove_entry')
+        misc.menu_append_item(self.cheatlist_popup, 'Browse this address', self.cheatlist_popup_cb, 'browse_this_address')
+        misc.menu_append_item(self.cheatlist_popup, 'Copy address', self.cheatlist_popup_cb, 'copy_address')
+        misc.menu_append_item(self.cheatlist_popup, 'Remove this entry', self.cheatlist_popup_cb, 'remove_entry')
         self.cheatlist_popup.show_all()
 
         self.builder.connect_signals(self)
@@ -335,7 +345,7 @@ class GameConqueror():
 
     def MemoryEditor_Button_clicked_cb(self, button, data=None):
         if self.pid == 0:
-            self.show_error(_('Please select a process'))
+            self.show_error('Please select a process')
             return
         self.browse_memory()
         return True
@@ -348,7 +358,7 @@ class GameConqueror():
             addr = int(txt, 16)
             self.browse_memory(addr)
         except:
-            self.show_error(_('Invalid address'))
+            self.show_error('Invalid address')
 
     # Manually add cheat
 
@@ -358,12 +368,10 @@ class GameConqueror():
             addr = int(addr, 16)
             addr = GObject.Value(GObject.TYPE_UINT64, addr)
         except (ValueError, OverflowError):
-            self.show_error(_('Please enter a valid address.'))
+            self.show_error('Please enter a valid address.')
             return False
 
-        description = self.addcheat_description_input.get_text()
-        if not description: description = _('No Description')
-
+        descript = self.addcheat_description_input.get_text() or 'No Description'
         typestr = self.addcheat_type_combobox.get_active_text()
         length = self.addcheat_length_spinbutton.get_value_as_int()
         if 'int' in typestr: value = 0
@@ -372,7 +380,7 @@ class GameConqueror():
         elif typestr == 'bytearray': value = '00 ' * length
         else: value = None
 
-        self.add_to_cheat_list(addr, value, typestr, description)
+        self.add_to_cheat_list(addr, value, typestr, descript)
         self.addcheat_dialog.hide()
         return True
 
@@ -391,7 +399,7 @@ class GameConqueror():
         return True
 
     def LoadCheat_Button_clicked_cb(self, button, data=None):
-        dialog = Gtk.FileChooserDialog(title=_("Open.."),
+        dialog = Gtk.FileChooserDialog(title="Open..",
                                        transient_for=self.main_window,
                                        action=Gtk.FileChooserAction.OPEN,
                                        buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -411,7 +419,7 @@ class GameConqueror():
         return True
 
     def SaveCheat_Button_clicked_cb(self, button, data=None):
-        dialog = Gtk.FileChooserDialog(title=_("Save.."),
+        dialog = Gtk.FileChooserDialog(title="Save..",
                                        transient_for=self.main_window,
                                        action=Gtk.FileChooserAction.SAVE,
                                        buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -516,14 +524,14 @@ class GameConqueror():
         self.processlist_liststore.clear()
         pl = self.get_process_list()
         for p in pl:
-            self.processlist_liststore.append([p[0], (p[1] if len(p) > 1 else _('<unknown>')), (p[2] if len(p) > 2 else _('<unknown>'))])
+            self.processlist_liststore.append([p[0], (p[1] if len(p) > 1 else '<unknown>'), (p[2] if len(p) > 2 else '<unknown>')])
         self.process_list_dialog.show()
         while True:
             res = self.process_list_dialog.run()
             if res == Gtk.ResponseType.OK: # -5
                 (model, iter) = self.processlist_tv.get_selection().get_selected()
                 if iter is None:
-                    self.show_error(_('Please select a process'))
+                    self.show_error('Please select a process')
                     continue
                 else:
                     (pid, process) = model.get(iter, 0, 2)
@@ -564,7 +572,7 @@ class GameConqueror():
         data = self.read_memory(self.memoryeditor_hexview.base_addr, dlength)
         if data is None:
             self.memoryeditor_window.hide()
-            self.show_error(_('Cannot read memory'))
+            self.show_error('Cannot read memory')
             return
         old_addr = self.memoryeditor_hexview.get_current_addr()
         self.memoryeditor_hexview.payload = misc.str2bytes(data)
@@ -815,7 +823,7 @@ class GameConqueror():
     def scan_for_addr(self, addr):
         bits = self.get_pointer_width()
         if bits is None:
-            self.show_error(_('Unknown architecture, you may report to developers'))
+            self.show_error('Unknown architecture, you may report to developers')
             return
         self.reset_scan()
         self.value_input.set_text('%#x'%(addr,))
@@ -827,8 +835,7 @@ class GameConqueror():
         try:
             self.read_maps()
         except:
-            self.show_error(_('Cannot retrieve memory maps of that process, maybe it has '
-                              'exited (crashed), or you don\'t have enough privileges'))
+            self.show_error('Cannot retrieve memory maps of that process, maybe it has exited (crashed), or you don\'t have enough privileges')
             return
         selected_region = None
         if addr is not None:
@@ -838,10 +845,10 @@ class GameConqueror():
                     break
             if selected_region:
                 if selected_region['flags'][0] != 'r': # not readable
-                    self.show_error(_('Address %x is not readable') % (addr,))
+                    self.show_error('Address %x is not readable' % addr)
                     return
             else:
-                self.show_error(_('Address %x is not valid') % (addr,))
+                self.show_error('Address %x is not valid' % addr)
                 return
         else:
             # just select the first readable region
@@ -850,7 +857,7 @@ class GameConqueror():
                     selected_region = m
                     break
             if selected_region is None:
-                self.show_error(_('Cannot find a readable region'))
+                self.show_error('Cannot find a readable region')
                 return
             addr = selected_region['start_addr']
 
@@ -859,7 +866,7 @@ class GameConqueror():
         end_addr = min(addr + HEXEDIT_SPAN, selected_region['end_addr'])
         data = self.read_memory(start_addr, end_addr - start_addr)
         if data is None:
-            self.show_error(_('Cannot read memory'))
+            self.show_error('Cannot read memory')
             return
         self.memoryeditor_hexview.payload = misc.str2bytes(data)
         self.memoryeditor_hexview.base_addr = start_addr
@@ -877,7 +884,7 @@ class GameConqueror():
         Gdk.threads_leave()
         return True
 
-    def add_to_cheat_list(self, addr, value, typestr, description=_('No Description'), at_end=False):
+    def add_to_cheat_list(self, addr, value, typestr, description='No Description', at_end=False):
         # determine longest possible type
         types = typestr.split()
         vt = typestr
@@ -916,10 +923,9 @@ class GameConqueror():
             self.read_maps()
         except:
             self.pid = 0
-            self.process_label.set_text(_('No process selected'))
-            self.process_label.set_property('tooltip-text', _('Select a process'))
-            self.show_error(_('Cannot retrieve memory maps of that process, maybe it has '
-                              'exited (crashed), or you don\'t have enough privileges'))
+            self.process_label.set_text('No process selected')
+            self.process_label.set_property('tooltip-text', 'Select a process')
+            self.show_error('Cannot retrieve memory maps of that process, maybe it has exited (crashed), or you don\'t have enough privileges')
         else:
             self.process_label.set_text('%d - %s' % (pid, process_name))
             self.process_label.set_property('tooltip-text', process_name)
@@ -934,7 +940,7 @@ class GameConqueror():
             self.cheatlist_liststore[i][0] = False
 
     def read_maps(self):
-        lines = open('/proc/%d/maps' % (self.pid,)).readlines()
+        lines = open('/proc/%d/maps' % self.pid).readlines()
         self.maps = []
         for l in lines:
             item = {}
@@ -978,7 +984,7 @@ class GameConqueror():
         self.scanresult_liststore.set_sort_func(1, misc.value_compare, (1, isnumeric))
 
         self.command_lock.acquire()
-        self.backend.send_command('option scan_data_type %s' % (datatype,))
+        self.backend.send_command('option scan_data_type %s' % datatype)
         # search scope
         self.backend.send_command('option region_scan_level %d' %(1 + int(self.search_scope_scale.get_value()),))
         # TODO: ugly, reset to make region_scan_level taking effect
@@ -990,7 +996,7 @@ class GameConqueror():
     # set GUI if needed
     def do_scan(self):
         if self.pid == 0:
-            self.show_error(_('Please select a process'))
+            self.show_error('Please select a process')
             return
         assert(self.scan_data_type_combobox.get_active() >= 0)
         data_type = self.scan_data_type_combobox.get_active_text()
@@ -1050,7 +1056,7 @@ class GameConqueror():
 
     def update_scan_result(self):
         match_count = self.backend.get_match_count()
-        self.found_count_label.set_text(_('Found: %d') % (match_count,))
+        self.found_count_label.set_text('Found: %d' % match_count)
         if (match_count > SCAN_RESULT_LIST_LIMIT) or (self.backend.process_is_dead(self.pid)):
             self.scanresult_liststore.clear()
         else:
@@ -1076,8 +1082,8 @@ class GameConqueror():
                     addr.set_uint64(int(addr_str, 16))
                     off.set_uint64(int(off_str, 16))
                 else:
-                    addr = long(addr_str, 16)
-                    off = long(off_str, 16)
+                    addr = int(addr_str, 16)
+                    off = int(off_str, 16)
                 self.scanresult_liststore.insert_with_valuesv(-1, [0, 1, 2, 3, 4, 5, 6], [addr, val, t, True, off, rt, mid])
                 # self.scanresult_liststore.append([addr, val, t, True, off, rt, mid])
             self.scanresult_tv.set_model(self.scanresult_liststore)
@@ -1165,18 +1171,17 @@ class GameConqueror():
 
     def check_backend_version(self):
         if self.backend.version != VERSION:
-            self.show_error(_('Version of scanmem mismatched, you may encounter problems. Please make sure you are using the same version of GameConqueror as scanmem.'))
+            self.show_error('Version of scanmem mismatched, you may encounter problems. Please make sure you are using the same version of GameConqueror as scanmem.')
 
 
 if __name__ == '__main__':
     # Parse cmdline arguments
     parser = argparse.ArgumentParser(prog='GameConqueror',
-                                     description=_("A GUI for scanmem, a game hacking tool"),
-                                     epilog=_('Report bugs to ' + PACKAGE_BUGREPORT + '.'))
-    parser.add_argument('-s', '--search', metavar='val', dest='search_value',
-                        help=_('prefill the search box'))
+                                     description='A GUI for scanmem, a game hacking tool',
+                                     epilog=f'Report bugs to {BUGREPORT}.')
+    parser.add_argument('-s', '--search', metavar='val', dest='search_value', help='prefill the search box')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
-    parser.add_argument("pid", nargs='?', type=int, help=_("PID of the process"))
+    parser.add_argument('pid', nargs='?', type=int, help='PID of the process')
     args = parser.parse_args()
 
     # Init application

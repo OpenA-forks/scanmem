@@ -1,7 +1,7 @@
 SUBDIRS = icons
 
 gameconquerordir=$(datadir)/gameconqueror
-python_PYTHON = scanmem.py consts.py misc.py hexview.py GameConqueror.py
+python_PYTHON = scanmem.py speedhack.py misc.py hexview.py GameConqueror.py
 pythondir = $(gameconquerordir)
 dist_bin_SCRIPTS = gameconqueror
 dist_gameconqueror_DATA = GameConqueror.ui icons/GameConqueror.svg
@@ -16,7 +16,7 @@ dist_appdata_DATA = $(dist_appdata_in_files:.xml.in=.xml)
 @INTLTOOL_XML_RULE@
 dist_man_MANS = gameconqueror.1
 dist_doc_DATA = README TODO COPYING
-EXTRA_DIST = gameconqueror.in consts.py.in
+EXTRA_DIST = gameconqueror.in
 
 desktopdir=$(datadir)/applications
 polkitdir=$(datadir)/polkit-1/actions

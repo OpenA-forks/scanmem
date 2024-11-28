@@ -33,7 +33,6 @@ test-driver
 # GameConqueror
 gui/org.scanmem.gameconqueror.metainfo.xml
 gui/org.scanmem.gameconqueror.desktop
-gui/consts.py
 gui/*.pyc
 gui/*.pyo
 gui/__pycache__
