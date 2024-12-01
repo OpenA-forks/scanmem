@@ -1,22 +1,23 @@
 #!/bin/sh
 
-# constants 
-# should be defined by autotools
-export SCANMEM_LIBDIR="@LIBDIR@"
-export SCANMEM_VERSION="@VERSION@"
-export SCANMEM_GETTEXT="@GETTEXT_PACKAGE@"
-export SCANMEM_LOCALEDIR="@LOCALEDIR@"
-export SCANMEM_BUGREPORT="@PACKAGE_BUGREPORT@"
 
-DATADIR="@PKGDATADIR@"
+py_gameconqueror()
+{
+	export SCANMEM_LIBDIR="@LIBDIR@"
+	export SCANMEM_VERSION="@VERSION@"
+	export SCANMEM_GETTEXT="@GETTEXT_PACKAGE@"
+	export SCANMEM_LOCALEDIR="@LOCALEDIR@"
+	export SCANMEM_BUGREPORT="@PACKAGE_BUGREPORT@"
+	# constants should be defined by autotools
+	DATADIR="@PKGDATADIR@"
+
+	python3 "$DATADIR/GameConqueror.py" "$@"
+}
+
 
 PKEXEC=$(command -v "pkexec")
 if [ -n "$PKEXEC" ]; then
-    "$PKEXEC" env SCANMEM_LIBDIR=$SCANMEM_LIBDIR\
-                  SCANMEM_VERSION=$SCANMEM_VERSION\
-                  SCANMEM_GETTEXT=$SCANMEM_GETTEXT\
-                  SCANMEM_LOCALEDIR=$SCANMEM_LOCALEDIR\
-                  SCANMEM_BUGREPORT=$SCANMEM_BUGREPORT "$DATADIR/GameConqueror.py" "$@"
+	py_gameconqueror "$@"
 else
     echo "install policykit!"
 fi

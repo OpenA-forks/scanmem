@@ -22,22 +22,10 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-
-import sys
-import os
-import argparse
-import struct
-import platform
-import threading
-import json
-import re
-
-import gi
+import os, sys, argparse, struct, platform, threading, json, gi
+# check toolkit version
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk
-from gi.repository import Gdk
-from gi.repository import GObject
-from gi.repository import GLib
+from gi.repository import Gtk, Gdk, GObject, GLib
 
 BUGREPORT  = os.environ['SCANMEM_BUGREPORT']
 GETTEXTPKG = os.environ['SCANMEM_GETTEXT']
@@ -47,10 +35,7 @@ LIBDIR     = os.environ['SCANMEM_LIBDIR']
 
 from hexview import HexView
 from scanmem import Scanmem
-import misc
-
-import locale
-import gettext
+import misc, locale, gettext
 
 # In some locale, ',' is used in float numbers
 locale.setlocale(locale.LC_NUMERIC, 'C')
@@ -136,7 +121,6 @@ class GameConqueror():
         self.builder.add_from_file(os.path.join(WORK_DIR, 'GameConqueror.ui'))
 
         self.main_window = self.builder.get_object('MainWindow')
-        self.main_window.set_title('GameConqueror %s' % (VERSION,))
         self.about_dialog = self.builder.get_object('AboutDialog')
         # set version
         self.about_dialog.set_version(VERSION)
@@ -152,7 +136,6 @@ class GameConqueror():
         self.memoryeditor_address_entry = self.builder.get_object('MemoryEditor_Address_Entry')
         self.memoryeditor_hexview.connect('char-changed', self.memoryeditor_hexview_char_changed_cb)
 
-        self.found_count_label = self.builder.get_object('FoundCount_Label')
         self.process_label = self.builder.get_object('Process_Label')
         self.value_input = self.builder.get_object('Value_Input')
         
@@ -1056,7 +1039,7 @@ class GameConqueror():
 
     def update_scan_result(self):
         match_count = self.backend.get_match_count()
-        self.found_count_label.set_text('Found: %d' % match_count)
+        self.main_window.set_title('Found: %d' % match_count)
         if (match_count > SCAN_RESULT_LIST_LIMIT) or (self.backend.process_is_dead(self.pid)):
             self.scanresult_liststore.clear()
         else:
@@ -1185,8 +1168,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Init application
-    GObject.threads_init()
-    Gdk.threads_init()
+    #GObject.threads_init() ~ deprecated
+    #Gdk.threads_init()
     gc_instance = GameConqueror()
 
     # Attach to given pid (if any)

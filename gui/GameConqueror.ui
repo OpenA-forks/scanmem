@@ -208,14 +208,19 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
     <property name="can_focus">False</property>
     <property name="icon_name">computer</property>
   </object>
+  <object class="GtkImage" id="logo_image">
+    <property name="visible">True</property>
+    <property name="can_focus">False</property>
+    <property name="pixbuf">GC-mono.svg</property>
+  </object>
   <object class="GtkWindow" id="MainWindow">
     <property name="visible">True</property>
     <property name="can_focus">False</property>
-    <property name="title" translatable="yes">GameConqueror</property>
+    <property name="title" translatable="yes">Found: 0</property>
     <property name="window_position">center</property>
     <property name="default_width">550</property>
     <property name="default_height">550</property>
-    <property name="icon">GameConqueror.svg</property>
+    <property name="icon">GC-logo.svg</property>
     <child>
       <object class="GtkPaned" id="vpaned1">
         <property name="visible">True</property>
@@ -233,22 +238,6 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="orientation">vertical</property>
-                <child>
-                  <object class="GtkLabel" id="FoundCount_Label">
-                    <property name="visible">True</property>
-                    <property name="can_focus">False</property>
-                    <property name="halign">start</property>
-                    <property name="margin_left">5</property>
-                    <property name="margin_top">2</property>
-                    <property name="margin_bottom">2</property>
-                    <property name="label" translatable="yes">Found: 0</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">False</property>
-                    <property name="position">0</property>
-                  </packing>
-                </child>
                 <child>
                   <object class="GtkScrolledWindow" id="scrolledwindow2">
                     <property name="visible">True</property>
@@ -419,28 +408,19 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
                     <property name="can_focus">False</property>
                     <property name="column_spacing">5</property>
                     <child>
-                      <object class="GtkEventBox" id="Logo_EventBox">
-                        <property name="width_request">72</property>
-                        <property name="height_request">72</property>
+                      <object class="GtkButton" id="Logo_EventBox">
+                        <property name="width_request">32</property>
+                        <property name="height_request">32</property>
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <property name="tooltip_text" translatable="yes">About</property>
-                        <property name="visible_window">False</property>
+                        <property name="image">logo_image</property>
                         <signal name="button-release-event" handler="Logo_EventBox_button_release_event_cb" swapped="no"/>
-                        <child>
-                          <object class="GtkImage" id="Logo_Image">
-                            <property name="width_request">72</property>
-                            <property name="height_request">72</property>
-                            <property name="visible">True</property>
-                            <property name="can_focus">False</property>
-                            <property name="pixbuf">GameConqueror.svg</property>
-                          </object>
-                        </child>
                       </object>
                       <packing>
                         <property name="left_attach">1</property>
                         <property name="top_attach">0</property>
-                        <property name="height">2</property>
+                        <property name="height">1</property>
                       </packing>
                     </child>
                     <child>

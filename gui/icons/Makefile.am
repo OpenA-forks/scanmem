@@ -1,4 +1,4 @@
-dist_icon_DATA = GameConqueror.svg
+dist_icon_DATA = GameConqueror.svg GC-logo.svg GC-mono.svg
 EXTRA_DIST = $(icons_DATA)
 
 icondir = $(datadir)/icons/hicolor/scalable/apps
