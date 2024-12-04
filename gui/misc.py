@@ -19,11 +19,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import sys
+import socket
 
 from gi.repository import Gtk
 
-PY3K = sys.version_info >= (3, 0)
+PY3K = True #sys.version_info >= (3, 0)
 
 # check command syntax, data range etc.
 # return a valid scanmem command
@@ -219,3 +219,13 @@ def str2bytes(string):
         return bytes(string)
     else:
         return map(ord, string)
+
+def wait_connection(soc_path: str):
+    # Create the Unix socket server for connect scanmem backend
+    server  = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    # Bind the socket to the path
+    server.bind(soc_path)
+    # Listen for incoming connections
+    server.listen(1)
+    # accept connections
+    return server.accept()

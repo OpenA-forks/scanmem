@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
     Game Conqueror: a graphical game cheating tool, using scanmem as its backend
     
@@ -22,25 +21,25 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, sys, argparse, struct, platform, threading, json, gi
+import os, sys, socket, struct, platform, threading, json, gi
 # check toolkit version
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GObject, GLib
 
-BUGREPORT  = os.environ['SCANMEM_BUGREPORT']
-GETTEXTPKG = os.environ['SCANMEM_GETTEXT']
-LOCALEDIR  = os.environ['SCANMEM_LOCALEDIR']
-VERSION    = os.environ['SCANMEM_VERSION']
-LIBDIR     = os.environ['SCANMEM_LIBDIR']
+SOCK_PATH   = os.environ['SCANMEM_SOCKET']
+GETTEXT_PKG = os.environ['SCANMEM_GETTEXT']
+LOCALE_DIR  = os.environ['SCANMEM_LOCALEDIR']
+UI_GTK_PATH = os.environ['SCANMEM_UIGTK']
+VERSION     = os.environ['SCANMEM_VERSION']
+PROC_ID     = os.environ['SCANMEM_PROCID']
 
 from hexview import HexView
-from scanmem import Scanmem
 import misc, locale, gettext
 
 # In some locale, ',' is used in float numbers
 locale.setlocale(locale.LC_NUMERIC, 'C')
-locale.bindtextdomain(GETTEXTPKG, LOCALEDIR)
-gettext.install(GETTEXTPKG, LOCALEDIR, names=('_'))
+locale.bindtextdomain(GETTEXT_PKG, LOCALE_DIR)
+gettext.install(GETTEXT_PKG, LOCALE_DIR, names=('_'))
 
 CLIPBOARD = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 WORK_DIR = os.path.dirname(sys.argv[0])
@@ -113,43 +112,43 @@ SETTINGS = {'scan_data_type':'int32'
            }
 
 class GameConqueror():
-    def __init__(self):
+    def __init__(self, connect: socket.socket):
         ##################################
         # init GUI
-        self.builder = Gtk.Builder()
-        self.builder.set_translation_domain(GETTEXTPKG)
-        self.builder.add_from_file(os.path.join(WORK_DIR, 'GameConqueror.ui'))
+        gcui = Gtk.Builder()
+        gcui.set_translation_domain(GETTEXT_PKG)
+        gcui.add_from_file(UI_GTK_PATH)
 
-        self.main_window = self.builder.get_object('MainWindow')
-        self.about_dialog = self.builder.get_object('AboutDialog')
+        self.main_window = gcui.get_object('MainWindow')
+        self.about_dialog = gcui.get_object('AboutDialog')
         # set version
         self.about_dialog.set_version(VERSION)
 
-        self.process_list_dialog = self.builder.get_object('ProcessListDialog')
-        self.addcheat_dialog = self.builder.get_object('AddCheatDialog')
+        self.process_list_dialog = gcui.get_object('ProcessListDialog')
+        self.addcheat_dialog = gcui.get_object('AddCheatDialog')
 
         # init memory editor
-        self.memoryeditor_window = self.builder.get_object('MemoryEditor_Window')
+        self.memoryeditor_window = gcui.get_object('MemoryEditor_Window')
         self.memoryeditor_hexview = HexView()
         self.memoryeditor_window.get_child().pack_start(self.memoryeditor_hexview, True, True, 0)
         self.memoryeditor_hexview.show_all()
-        self.memoryeditor_address_entry = self.builder.get_object('MemoryEditor_Address_Entry')
+        self.memoryeditor_address_entry = gcui.get_object('MemoryEditor_Address_Entry')
         self.memoryeditor_hexview.connect('char-changed', self.memoryeditor_hexview_char_changed_cb)
 
-        self.process_label = self.builder.get_object('Process_Label')
-        self.value_input = self.builder.get_object('Value_Input')
+        self.process_label = gcui.get_object('Process_Label')
+        self.value_input = gcui.get_object('Value_Input')
         
-        self.scanoption_frame = self.builder.get_object('ScanOption_Frame')
-        self.scanprogress_progressbar = self.builder.get_object('ScanProgress_ProgressBar')
-        self.input_box = self.builder.get_object('Value_Input')
+        self.scanoption_frame = gcui.get_object('ScanOption_Frame')
+        self.scanprogress_progressbar = gcui.get_object('ScanProgress_ProgressBar')
+        self.input_box = gcui.get_object('Value_Input')
 
-        self.scan_button = self.builder.get_object('Scan_Button')
-        self.stop_button = self.builder.get_object('Stop_Button')
-        self.reset_button = self.builder.get_object('Reset_Button')
+        self.scan_button = gcui.get_object('Scan_Button')
+        self.stop_button = gcui.get_object('Stop_Button')
+        self.reset_button = gcui.get_object('Reset_Button')
 
         ###
         # Set scan data type
-        self.scan_data_type_combobox = self.builder.get_object('ScanDataType_ComboBoxText')
+        self.scan_data_type_combobox = gcui.get_object('ScanDataType_ComboBoxText')
         for entry in SCAN_VALUE_TYPES:
             self.scan_data_type_combobox.append_text(entry)
         # apply setting
@@ -157,7 +156,7 @@ class GameConqueror():
 
         ###
         # set search scope
-        self.search_scope_scale = self.builder.get_object('SearchScope_Scale')
+        self.search_scope_scale = gcui.get_object('SearchScope_Scale')
         # apply setting
         self.search_scope_scale.set_value(SETTINGS['search_scope'])
 
@@ -166,7 +165,7 @@ class GameConqueror():
         # init scanresult treeview
         # we may need a cell data func here
         # create model
-        self.scanresult_tv = self.builder.get_object('ScanResult_TreeView')
+        self.scanresult_tv = gcui.get_object('ScanResult_TreeView')
         # liststore contents:                     addr,                value, type, valid, offset,              region type, match_id
         self.scanresult_liststore = Gtk.ListStore(GObject.TYPE_UINT64, str,   str,  bool,  GObject.TYPE_UINT64, str,         int)
         self.scanresult_tv.set_model(self.scanresult_liststore)
@@ -189,7 +188,7 @@ class GameConqueror():
                                    )
 
         # init CheatList TreeView
-        self.cheatlist_tv = self.builder.get_object('CheatList_TreeView')
+        self.cheatlist_tv = gcui.get_object('CheatList_TreeView')
         # cheatlist contents:                    locked, description, addr,                type, value, valid
         self.cheatlist_liststore = Gtk.ListStore(bool,   str,         GObject.TYPE_UINT64, str,  str,   bool)
         self.cheatlist_tv.set_model(self.cheatlist_liststore)
@@ -239,10 +238,10 @@ class GameConqueror():
                                    )
 
         # init ProcessList
-        self.processfilter_input = self.builder.get_object('ProcessFilter_Input')
-        self.userfilter_input = self.builder.get_object('UserFilter_Input')
+        self.processfilter_input = gcui.get_object('ProcessFilter_Input')
+        self.userfilter_input = gcui.get_object('UserFilter_Input')
         # init ProcessList_TreeView
-        self.processlist_tv = self.builder.get_object('ProcessList_TreeView')
+        self.processlist_tv = gcui.get_object('ProcessList_TreeView')
         self.processlist_liststore = Gtk.ListStore(int, str, str)
         self.processlist_filter = self.processlist_liststore.filter_new(root=None)
         self.processlist_filter.set_visible_func(self.processlist_filter_func, data=None)
@@ -267,21 +266,21 @@ class GameConqueror():
         # get list of things to be disabled during scan
         self.disablelist = [self.cheatlist_tv,
                             self.scanresult_tv,
-                            self.builder.get_object('processGrid'),
+                            gcui.get_object('processGrid'),
                             self.value_input,
                             self.reset_button,
-                            self.builder.get_object('buttonGrid'),
+                            gcui.get_object('buttonGrid'),
                             self.memoryeditor_window]
 
 
         # init AddCheatDialog
-        self.addcheat_address_input = self.builder.get_object('Address_Input')
+        self.addcheat_address_input = gcui.get_object('Address_Input')
         self.addcheat_address_input.override_font(gi.repository.Pango.FontDescription("Monospace"))
 
-        self.addcheat_description_input = self.builder.get_object('Description_Input')
-        self.addcheat_length_spinbutton = self.builder.get_object('Length_SpinButton')
+        self.addcheat_description_input = gcui.get_object('Description_Input')
+        self.addcheat_length_spinbutton = gcui.get_object('Length_SpinButton')
 
-        self.addcheat_type_combobox = self.builder.get_object('Type_ComboBoxText')
+        self.addcheat_type_combobox = gcui.get_object('Type_ComboBoxText')
         for entry in MEMORY_TYPES:
             self.addcheat_type_combobox.append_text(entry)
         misc.combobox_set_active_item(self.addcheat_type_combobox, SETTINGS['lock_data_type'])
@@ -303,7 +302,7 @@ class GameConqueror():
         misc.menu_append_item(self.cheatlist_popup, 'Remove this entry', self.cheatlist_popup_cb, 'remove_entry')
         self.cheatlist_popup.show_all()
 
-        self.builder.connect_signals(self)
+        gcui.connect_signals(self)
         self.main_window.connect('destroy', self.exit)
 
         ###########################
@@ -313,8 +312,8 @@ class GameConqueror():
         self.is_scanning = False
         self.exit_flag = False # currently for data_worker only, other 'threads' may also use this flag
 
-        self.backend = Scanmem(os.path.join(LIBDIR, 'libscanmem.so.1'))
-        self.check_backend_version()
+        self.backend = connect
+        self._ui = gcui
         self.is_first_scan = True
         GLib.timeout_add(DATA_WORKER_INTERVAL, self.data_worker)
         self.command_lock = threading.RLock()
@@ -1149,41 +1148,20 @@ class GameConqueror():
 
     def exit(self, object, data=None):
         self.exit_flag = True
-        self.backend.exit_cleanup()
+        self.backend.sendall(b'exit')
         Gtk.main_quit()
-
-    def check_backend_version(self):
-        if self.backend.version != VERSION:
-            self.show_error('Version of scanmem mismatched, you may encounter problems. Please make sure you are using the same version of GameConqueror as scanmem.')
 
 
 if __name__ == '__main__':
-    # Parse cmdline arguments
-    parser = argparse.ArgumentParser(prog='GameConqueror',
-                                     description='A GUI for scanmem, a game hacking tool',
-                                     epilog=f'Report bugs to {BUGREPORT}.')
-    parser.add_argument('-s', '--search', metavar='val', dest='search_value', help='prefill the search box')
-    parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
-    parser.add_argument('pid', nargs='?', type=int, help='PID of the process')
-    args = parser.parse_args()
-
-    # Init application
-    #GObject.threads_init() ~ deprecated
-    #Gdk.threads_init()
-    gc_instance = GameConqueror()
-
-    # Attach to given pid (if any)
-    if (args.pid is not None) :
-        process_name = os.popen('ps -p ' + str(args.pid) + ' -o command=').read().strip()
-        if process_name == '':
-            exelink = os.path.join("/proc", str(args.pid), "exe")
-            if os.path.exists(exelink):
-                process_name = os.path.realpath(exelink)
-        gc_instance.select_process(args.pid, process_name)
-
-    # Prefill the search box (if asked)
-    if (args.search_value is not None) :
-        gc_instance.input_box.set_text(args.search_value)
-
-    # Start
-    Gtk.main()
+    # accept connections
+    connect,_ = misc.wait_connection(SOCK_PATH)
+    try:
+        # Init application
+        gc_instance = GameConqueror(connect)
+        # Start
+        Gtk.main()
+    finally:
+        # close the connection
+        connect.close()
+        # remove the socket file
+        os.unlink(SOCK_PATH)

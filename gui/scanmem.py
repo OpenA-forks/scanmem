@@ -19,13 +19,10 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import ctypes
-import os
-import re
-import sys
-import tempfile
+import ctypes, os, re, sys, tempfile, socket, time
 
-import misc
+LIB_PATH = os.environ['SCANMEM_LIBDIR'] # libscanmem.so
+SOC_PATH = os.environ['SCANMEM_SOCKET'] # /tmp/scanmem-X.X~dev-socket
 
 class Scanmem():
     """Wrapper for libscanmem."""
@@ -42,13 +39,13 @@ class Scanmem():
         'sm_process_is_dead' : (ctypes.c_bool, ctypes.c_int32)
     }
 
-    def __init__(self, libpath='libscanmem.so'):
-        self._lib = ctypes.CDLL(libpath)
+    def __init__(self):
+        self._lib = ctypes.CDLL(LIB_PATH)
         self._init_lib_functions()
         self._lib.sm_set_backend()
         self._lib.sm_init()
-        self.send_command('reset')
-        self.version = misc.decode(self._lib.sm_get_version())
+        self.exec_command('reset')
+        self.version = self._lib.sm_get_version().decode()
 
     def _init_lib_functions(self):
         for k,v in Scanmem.LIBRARY_FUNCS.items():
@@ -56,7 +53,7 @@ class Scanmem():
             f.restype = v[0]
             f.argtypes = v[1:]
 
-    def send_command(self, cmd, get_output = False):
+    def send_command(self, cmd: str):
         """
         Execute command using libscanmem.
         This function is NOT thread safe, send only one command at a time.
@@ -64,19 +61,19 @@ class Scanmem():
         cmd: command to run
         get_output: if True, return in a string what libscanmem would print to stdout
         """
-        if get_output:
-            with tempfile.TemporaryFile() as directed_file:
-                backup_stdout_fileno = os.dup(sys.stdout.fileno())
-                os.dup2(directed_file.fileno(), sys.stdout.fileno())
+        with tempfile.TemporaryFile() as directed_file:
+            backup_stdout_fileno = os.dup(sys.stdout.fileno())
+            os.dup2(directed_file.fileno(), sys.stdout.fileno())
 
-                self._lib.sm_backend_exec_cmd(ctypes.c_char_p(misc.encode(cmd)))
+            self._lib.sm_backend_exec_cmd(ctypes.c_char_p(cmd.encode()))
 
-                os.dup2(backup_stdout_fileno, sys.stdout.fileno())
-                os.close(backup_stdout_fileno)
-                directed_file.seek(0)
-                return directed_file.read()
-        else:
-            self._lib.sm_backend_exec_cmd(ctypes.c_char_p(misc.encode(cmd)))
+            os.dup2(backup_stdout_fileno, sys.stdout.fileno())
+            os.close(backup_stdout_fileno)
+            directed_file.seek(0)
+            return directed_file.read()
+
+    def exec_command(self, cmd: str):
+        self._lib.sm_backend_exec_cmd(ctypes.c_char_p(cmd.encode()))
 
     def get_match_count(self):
         return self._lib.sm_get_num_matches()
@@ -104,10 +101,35 @@ class Scanmem():
         Returns a generator of (match_id_str, addr_str, off_str, region_type, value, types_str) for each match, all strings.
         The function executes commands internally, it is NOT thread safe
         """
-        list_bytes = self.send_command('list', get_output=True)
-        lines = filter(None, misc.decode(list_bytes).split('\n'))
-        
+        list_bytes = self.send_command('list')
         line_regex = re.compile(r'^\[ *(\d+)\] +([\da-f]+), +\d+ \+ +([\da-f]+), +(\w+), (.*), +\[([\w ]+)\]$')
-        for line in lines:
+
+        for line in list_bytes.decode().split('\n'):
             yield line_regex.match(line).groups()
-        
+
+    def listener(self, connect: socket.socket):
+        # receive data from the client
+        while True:
+            data = connect.recv(1024).decode()
+            resp = ''
+            if not data or data == 'exit':
+                print('scanmem: cleanup and exit..')
+                self._lib.sm_cleanup()
+                break
+            print('Received data:', data)
+            # Send a response back to the client
+            resp = 'Hello from the client!'
+            connect.sendall(resp.encode())
+
+
+if __name__ == '__main__':
+    # Create unix socket for connect GameConqueror server
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.connect(SOC_PATH)
+    try:
+        backend = Scanmem()
+        backend.listener(client)
+    finally:
+        client.shutdown(socket.SHUT_WR)
+        time.sleep(1)
+        client.close()
