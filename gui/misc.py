@@ -19,28 +19,49 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import socket
+import socket, struct, platform
 
-from gi.repository import Gtk
+SEARCH_SCOPE_NAMES = ['Basic', 'Normal', 'ReadOnly', 'Full']
 
-PY3K = True #sys.version_info >= (3, 0)
+LOCK_FLAG_TYPES = ['=', '+', '-']
+
+SCAN_VALUE_TYPES = ['int8', 'int16', 'int32', 'int64', 'float', 'float32', 'float64', 'number', 'bytearray', 'string']
+
+MEMORY_TYPES = ['int8', 'uint8','int16', 'uint16', 'int32', 'uint32','int64', 'uint64','float32', 'float64', 'bytearray', 'string']
+
+# 0: sizes in bytes of integer and float types
+# 1: struct format characters for convert typenames
+TYPESIZES_G2S = {
+    'int8' :(1,'b'), 'uint8' :(1,'B'),
+    'int16':(2,'h'), 'uint16':(2,'H'),
+    'int32':(4,'i'), 'uint32':(4,'I'), 'float32':(4,'f'),
+    'int64':(8,'q'), 'uint64':(8,'Q'), 'float64':(8,'d')
+}
+# convert type names used by scanmem into ours
+TYPENAMES_S2G = {
+    'I8' :'int8' ,'I8s' :'int8' ,'I8u' :'uint8',
+    'I16':'int16','I16s':'int16','I16u':'uint16',
+    'I32':'int32','I32s':'int32','I32u':'uint32','F32':'float32',
+    'I64':'int64','I64s':'int64','I64u':'uint64','F64':'float64',
+
+    'bytearray':'bytearray',
+    'string':'string'
+}
 
 # check command syntax, data range etc.
 # return a valid scanmem command
 # raise if something is invalid
-def check_scan_command (data_type, cmd, is_first_scan):
+def check_scan_command(data_type: str, cmd: str, is_first_scan=True):
+
     if cmd == '':
-        raise ValueError(_('No value provided'))
+        raise ValueError('No value provided')
     if data_type == 'string':
-        return '" ' + cmd
+        return '" '+ cmd
 
     cmd = cmd.strip()
     # hack for snapshot/update (TODO: make it possible with string)
     if cmd == '?':
-        if is_first_scan:
-            return 'snapshot'
-        else:
-            return 'update'
+        return 'snapshot' if is_first_scan else 'update'
 
     if data_type == 'bytearray':
         bytes = cmd.split(' ')
@@ -48,13 +69,13 @@ def check_scan_command (data_type, cmd, is_first_scan):
             if byte.strip() == '':
                 continue
             if len(byte) != 2:
-                raise ValueError(_('Bad value: %s') % (byte, ))
+                raise ValueError('Bad value: %s' % byte)
             if byte == '??':
                 continue
             try:
                _tmp = int(byte,16)
             except:
-                raise ValueError(_('Bad value: %s') % (byte, ))
+                raise ValueError('Bad value: %s' % byte)
         return cmd
     else: # for numbers
         is_operator_cmd = cmd in {'=', '!=', '>', '<', '+', '-'}
@@ -62,7 +83,7 @@ def check_scan_command (data_type, cmd, is_first_scan):
             return cmd
 
         if is_first_scan and (is_operator_cmd or cmd[:2] in {'+ ', '- '}):
-            raise ValueError(_('Command \"%s\" is not valid for the first scan') % (cmd[:2],))
+            raise ValueError('Command \"%s\" is not valid for the first scan' % cmd[:2])
 
         # evaluating the command
         range_nums = cmd.split("..")
@@ -92,133 +113,65 @@ def check_scan_command (data_type, cmd, is_first_scan):
         return cmd
 
 # evaluate the expression
-def eval_operand(s):
+def eval_operand(s: str):
     try:
         v = eval(s)
-        py2_long = not PY3K and isinstance(v, long)
-        if isinstance(v, int) or isinstance(v, float) or py2_long:
+        if isinstance(v, int) or isinstance(v, float):
             return v
     except:
         pass
-
-    raise ValueError(_('Bad value: %s') % (s,))
+    raise ValueError('Bad value: %s' % s)
 
 # check if a number is a valid integer
 # raise an exception if not
-def check_int (data_type, num):
-    if data_type.startswith('int'):
-        py2_long = not PY3K and isinstance(num, long)
-        if not (isinstance(num, int) or py2_long):
-            raise ValueError(_('%s is not an integer') % (num,))
+def check_int(data_type: str, num: str):
+    if data_type[0:3] == 'int':
+        if not isinstance(num, int):
+            raise ValueError('%s is not an integer' % num)
         if data_type == 'int':
             width = 64
         else:
-            width = int(data_type[len('int'):])
+            width = int(data_type[3:])
         if num > ((1<<width)-1) or num < -(1<<(width-1)):
-            raise ValueError(_('%s is too bulky for %s') % (num, data_type))
+            raise ValueError('%s is too bulky for %s' % (num, data_type))
     return
 
-# convert [a,b,c] into a liststore that [[a],[b],[c]], where a,b,c are strings
-def build_simple_str_liststore(l):
-    r = Gtk.ListStore(str)
-    for e in l:
-        r.append([e])
-    return r
-
-# set active item of the `combobox`
-# such that the value at `col` is `name`
-def combobox_set_active_item(combobox, name, col=0):
-    model = combobox.get_model()
-    iter = model.get_iter_first()
-    while iter is not None:
-        if model.get_value(iter, col) == name:
-            break
-        iter = model.iter_next(iter)
-    if iter is None:
-        raise ValueError(_('Cannot locate item: %s')%(name,))
-    combobox.set_active_iter(iter)
-
-# sort column according to datatype (callback for TreeView)
-def value_compare(treemodel, iter1, iter2, user_data):
-    sort_col, isnumeric = user_data
-
-    string1 = treemodel.get_value(iter1, sort_col)
-    string2 = treemodel.get_value(iter2, sort_col)
-
-    if (isnumeric):
-        val1 = float(string1)
-        val2 = float(string2)
-    else:
-        val1 = string1
-        val2 = string2
-
-    if val1 >  val2: return 1
-    if val1 == val2: return 0
+# return the size in bytes of the value in memory
+def get_type_size(data_type: str, data: bytearray | str | int):
+    # int or float type; fixed length
+    if data_type in TYPESIZES_G2S:
+        return TYPESIZES_G2S[data_type][0]
+    elif data_type == 'bytearray':
+        return (len(data.strip())+1)/3
+    elif data_type == 'string':
+        return len(data.encode())
     return -1
 
-# format number in base16 (callback for TreeView)
-def format16(col, cell, model, iter, hex_col):
-    cell.set_property("text", "%x" % model.get_value(iter, hex_col))
-
-# append a column to `treeview`, with given `title`
-# keyword parameters
-#   renderer_class -- default: Gtk.CellRendererText
-#   attributes --  if not None, will be applied to renderer
-#   properties -- if not None, will be applied to renderer
-#   signals -- if not None, will be connected to renderer
-# the latter two should be a list of tuples, i.e.  ((name1, value1), (name2, value2))
-def treeview_append_column(treeview, title, sort_id=None, resizable=True, hex_col=None, **kwargs):
-    renderer_class = kwargs.get('renderer_class', Gtk.CellRendererText)
-    attributes = kwargs.get('attributes')
-    properties = kwargs.get('properties')
-    signals = kwargs.get('signals')
-
-    column = Gtk.TreeViewColumn(title)
-    treeview.append_column(column)
-    if sort_id is not None:
-        column.set_sort_column_id(sort_id)
-    column.set_resizable(resizable)
-    renderer = renderer_class()
-    column.pack_start(renderer, True)
-    if hex_col is not None:
-        column.set_cell_data_func(renderer, format16, hex_col)
-    if attributes:
-        for k,v in attributes:
-            column.add_attribute(renderer, k, v)
-    if properties:
-        for k,v in properties:
-            renderer.set_property(k,v)
-    if signals:
-        for k,v in signals:
-            renderer.connect(k,v)
-
-# data is optional data to callback
-def menu_append_item(menu, name, callback, data=None):
-    item = Gtk.MenuItem(label=name)
-    menu.append(item)
-    item.connect('activate', callback, data)
-
-# Interface for bytes<>string conversion for py2/3
-# Usage is the same you'd do in py3, call `decode` on external raw data
-# and `encode` to work with the memory representation
-def decode(raw_bytes, errors='strict'):
-    if PY3K:
-        return raw_bytes.decode(errors=errors)
+# parse bytes dumped by scanmem into number, string, etc.
+def bytes2value(data_type: str, data: bytearray | str | int):
+    if data_type is None:
+        return None
+    elif data_type in TYPESIZES_G2S:
+        return struct.unpack(TYPESIZES_G2S[data_type][1], data)[0]
+    elif data_type == 'string':
+        return data.decode(errors='replace')
+    elif data_type == 'bytearray':
+        data = bytearray(data)
+        return ' '.join(['%02x' %(i,) for i in data])
     else:
-        return str(raw_bytes)
+        return data
 
-def encode(unicode_string, errors='strict'):
-    if PY3K:
-        return unicode_string.encode(errors=errors)
-    else:
-        return unicode_string
-
-# Convert codepoints to integers byte by byte
-def str2bytes(string):
-    if PY3K:
-        return bytes(string)
-    else:
-        return map(ord, string)
+# return negative if unknown
+def get_pointer_width():
+    bits = platform.architecture()[0]
+    if bits.endswith('bit'):
+        try:
+            nb = int(bits[:-3])
+            if nb in {8,16,32,64}:
+                return nb
+        except:
+            pass
+    return -1
 
 def wait_connection(soc_path: str):
     # Create the Unix socket server for connect scanmem backend
