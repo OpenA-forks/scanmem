@@ -19,7 +19,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import socket, struct, platform
+import os, socket, struct, platform
 
 SEARCH_SCOPE_NAMES = ['Basic', 'Normal', 'ReadOnly', 'Full']
 
@@ -172,6 +172,38 @@ def get_pointer_width():
         except:
             pass
     return -1
+
+def read_proc_maps(pid: int | str):
+    maps = []
+    for line in open(f'/proc/{pid}/maps').readlines():
+        info = line.split(' ', 5)
+        start, end = [int(h,16) for h in info[0].split('-')]
+        maps.append({
+            'start_addr': start,
+            'end_addr'  : end,
+            'flags'     : info[1],
+            'offset'    : info[2],
+            'dev'       : info[3],
+            'inode'     : int(info[4]),
+            'pathname'  : '' if len(info) < 6 else info[5].lstrip(), # don't use strip
+            'size'      : end - start
+        })
+    return maps
+
+def get_process_list(exclude_usr: str = 'root'):
+    for proc in os.popen('ps -wweo pid=,user:16=,command= --sort=-pid').readlines():
+        tok = proc.split(maxsplit=2)
+        pid = tok[0].strip()
+        usr = tok[1].strip() if len(tok) >= 2 else '<???>'
+        exe = tok[2].strip() if len(tok) >= 3 else ''
+        if exclude_usr and (usr == exclude_usr):
+            continue
+        # process name may be empty, but not the name of the executable
+        if not exe:
+            exelink = os.path.join('/proc',pid,'exe')
+            if os.path.exists(exelink):
+                exe = os.path.realpath(exelink)
+        yield (int(pid), usr, exe)
 
 def wait_connection(soc_path: str):
     # Create the Unix socket server for connect scanmem backend

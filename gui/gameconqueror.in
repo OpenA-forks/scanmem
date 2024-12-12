@@ -11,8 +11,8 @@ LIBDIR="@LIBDIR@"
 SOCKET="/tmp/scanmem-$VERSION-socket"
 PKEXEC=$(command -v "pkexec")
 PROCID=""
-SSCOPE=""
-TYPEVAL=""
+CONFIG="$HOME/.config/scanmem/GC.cfg"
+DEBUG=
 
 for i in "$@"; do
   case $i in
@@ -22,14 +22,15 @@ for i in "$@"; do
       echo ""
       echo "homepage:\n  $HOMEPAGE"
       echo ""
-      echo "positional arguments:"
-      echo "  pid                  PID of the process"
-      echo ""
-      echo "options:"
-      echo "  -s=%d, --scope=%d    sets the search scope (def: 1)"
+      echo "config keys:"
+      echo "  search_scope=%d      sets the search scope (def: 1)"
       echo "                      [0=Basic, 1=Normal, 2=ReadOnly, 3=Full]"
-      echo "  -t=%s, --type=%s     sets the value type (def: i32 )"
-      echo "                      [(u)i8, (u)i16, (u)i32, (u)i64, f32, f64, bytes, str]"
+      echo "  scan_data_type=%s    sets the value type (def: i32 )"
+      echo "                      [i8, i16, i32, i64, f32, f64, bytes, str]"
+      echo "options:"
+      echo "  --pid=%d             PID of the process"
+      echo "  --cfg=%s             file or keys separated by `;`"
+      echo ""
       echo "  -v, --version        print program's version"
       echo "  -h, --help           show this help message"
       echo ""
@@ -41,22 +42,28 @@ for i in "$@"; do
       echo "GameConqueror-$VERSION"
       exit
       ;;
-    --scope=* | -s=*)
-      SSCOPE="${i#*=}"
-      ;;
-    --type=* | -t=*)
-      TYPEVAL="${i#*=}"
-      ;;
-    *)
-      PROCID="$i"
+    --cfg=*) CONFIG="${i#*=}";;
+    --pid=*) PROCID="${i#*=}";;
+    --dbg  ) DEBUG=1
       ;;
   esac
 done
 
-py_scanmem()
-{
-  "$PKEXEC" env SCANMEM_LIBDIR="$LIBDIR/libscanmem.so.1"\
-                SCANMEM_SOCKET="$SOCKET"\
+pk_exec() {
+  if [ ! -z "$DEBUG" ]; then
+    sleep 1 && "$@"
+  else
+    pkexec "$@"
+  fi
+  if [ -e "$SOCKET" ]; then
+    rm -rf "$SOCKET"
+  fi
+}
+
+py_scanmem() {
+  pk_exec env SCANMEM_LIBDIR="$LIBDIR/libscanmem.so.1"\
+              SCANMEM_SOCKET="$SOCKET"\
+              SCANMEM_DEBUG="$DEBUG"\
   python3 "$DATADIR/scanmem.py"
 }
 
@@ -68,12 +75,12 @@ py_gameconqueror()
   export SCANMEM_LOCALEDIR="$LOCALEDIR"
   export SCANMEM_HOMEPAGE="$HOMEPAGE"
   export SCANMEM_SOCKET="$SOCKET"
-  export SCANMEM_PROCID="$PROCID"
+  export SCANMEM_DEBUG="$DEBUG"
 
-  env python3 "$DATADIR/GameConqueror.py"
+  env python3 "$DATADIR/GameConqueror.py" -pid="$PROCID" -cfg="$CONFIG"
 }
 
-if [ -f "$SOCKET" ]; then
+if [ -e "$SOCKET" ]; then
   echo "allready running!"
 elif [ -z "$PKEXEC" ]; then
   echo "install policykit!"
