@@ -41,35 +41,125 @@ locale.setlocale(locale.LC_NUMERIC, 'C')
 locale.bindtextdomain(GETTEXT_PKG, LOCALE_DIR)
 gettext.install(GETTEXT_PKG, LOCALE_DIR, names=('_'))
 
+ADDR_T = GObject.TYPE_UINT64
 PROGRESS_INTERVAL = 100 # for scan progress updates
 DATA_WORKER_INTERVAL = 500 # for read(update)/write(lock)
 HEXEDIT_SPAN = 1024 # hexview half-height
 SCAN_RESULT_LIST_LIMIT = 10000 # maximal number of entries that can be displayed
 
-class UIBuilder(Gtk.Builder):
+class GcUI(Gtk.Builder):
 
     def __init__(self):
-        super(UIBuilder, self).__init__()
+        super(GcUI, self).__init__()
 
         self.set_translation_domain(GETTEXT_PKG)
         self.add_from_file(UI_GTK_PATH)
 
         self.    main_window = self.get_object('MainWindow')
+        self.  mmedit_window = self.get_object('MemoryEditor_Window')
         self.procList_dialog = self.get_object('ProcessListDialog')
         self.addCheat_dialog = self.get_object('AddCheatDialog')
         self.   about_dialog = self.get_object('AboutDialog')
         self. process_label  = self.get_object('Process_Label')
-        self.   value_input  = self.get_object('Value_Input')
+        self.procFiltr_input = self.get_object('ProcessFilter_Input')
+        self.userFiltr_input = self.get_object('UserFilter_Input')
+        self.  scanVal_input = self.get_object('Value_Input')
         self.    scan_button = self.get_object('Scan_Button')
         self.    stop_button = self.get_object('Stop_Button')
         self.   reset_button = self.get_object('Reset_Button')
         self.   scan_options = self.get_object('ScanOption_Frame')
         self.   scan_progbar = self.get_object('ScanProgress_ProgressBar')
+        self. mmedit_adentry = self.get_object('MemoryEditor_Address_Entry')
+        self.  scanRes_tree  = self.get_object('ScanResult_TreeView')
+        self.cheatList_tree  = self.get_object('CheatList_TreeView')
+        self. procList_tree  = self.get_object('ProcessList_TreeView')
 
         # set version
         self.about_dialog.set_version(VERSION)
         self.about_dialog.set_website(HOMEPAGE)
+        # init ScanResult @ columns:      addr  , value, type, valid, offset, region, match_id
+        self.scanRes_list = Gtk.ListStore(ADDR_T, str  , str , bool , ADDR_T, str   , int)
+        self.scanRes_tree.set_model(self.scanRes_list)
+        # init ProcessList @ columns:      pid, usr, process
+        self.procList_list = Gtk.ListStore(int, str, str)
+        self.procList_filter = self.procList_list.filter_new()
+        self.procList_filter.set_visible_func(self.on_ProcessFilter_handler)
+        self.procList_tree.set_model(Gtk.TreeModelSort(model=self.procList_filter))
+        self.procList_tree.set_search_column(2)
+        # init CheatsList @ columns:        lock, desc, addr  , type, value, valid
+        self.cheatList_list = Gtk.ListStore(bool, str , ADDR_T, str , str  , bool)
+        self.cheatList_tree.set_model(self.cheatList_list)
+        # init scanresult treeview columns
+        # we may need a cell data func here
+        GcUI.treeview_append_column(self.scanRes_tree, 'Address', 0, data_func=GcUI.format16,
+                                    attributes=[('text', 0)],
+                                    properties=[('family', 'monospace')])
 
+        GcUI.treeview_append_column(self.scanRes_tree, 'Value', 1,
+                                    attributes=[('text', 0)],
+                                    properties=[('family', 'monospace')])
+
+        GcUI.treeview_append_column(self.scanRes_tree, 'Offset', 4, data_func=GcUI.format16,
+                                    attributes=[('text', 4)],
+                                    properties=[('family', 'monospace')])
+
+        GcUI.treeview_append_column(self.scanRes_tree, 'Region Type', 5,
+                                    attributes=[('text', 5)],
+                                    properties=[('family', 'monospace')])
+        # make processes tree
+        GcUI.treeview_append_column(self.procList_tree, 'PID'    , 0, attributes=[('text',0)])
+        GcUI.treeview_append_column(self.procList_tree, 'User'   , 1, attributes=[('text',1)])
+        GcUI.treeview_append_column(self.procList_tree, 'Process', 2, attributes=[('text',2)])
+        # Init signals
+        self.procFiltr_input.connect('changed', self.on_TextInput_handler)
+        self.userFiltr_input.connect('changed', self.on_TextInput_handler)
+        self.    main_window.connect('key-press-event', self.on_WinKey_handler)
+        self.  mmedit_window.connect('key-press-event', self.on_WinKey_handler)
+
+
+    ############################
+    # Handlers
+    def on_TextInput_handler(self, input, data=None):
+        is_usrFi = input is self.userFiltr_input
+        is_prcFi = input is self.procFiltr_input
+        if is_usrFi or is_prcFi:
+            self.procList_filter.refilter()
+            self.procList_tree.set_cursor(0)
+
+    def on_ProcessFilter_handler(self, model, iter, data=None):
+        user, proc = model.get(iter, 1, 2)
+        pFiltxt = self.procFiltr_input.get_text()
+        uFiltxt = self.userFiltr_input.get_text()
+        return proc and pFiltxt.lower() in proc.lower() and\
+               user and uFiltxt.lower() in user.lower()
+
+    def on_WinKey_handler(self, win, event, data=None):
+        key  = Gdk.keyval_name(event.keyval)
+        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
+
+        is_mmedit = win is self.mmedit_window
+        is_main   = win is self.  main_window
+
+        cheats_tv  = self.cheatList_tree
+        scanres_tv = self.scanRes_tree
+        scanval_in = self.scanVal_input
+
+        if (key == 'x' and ctrl) or key == 'Escape':
+            if is_mmedit: win.hide()
+        elif key == 'j' and ctrl:
+            if is_main:
+                if cheats_tv.is_focus() or scanval_in.is_focus():
+                    "focus", scanres_tv.grab_focus()
+                    curpos = scanres_tv.get_cursor()[0]
+                    if curpos is not None:
+                        scanres_tv.set_cursor(0)
+                elif scanres_tv.is_focus():
+                    "focus", cheats_tv.grab_focus()
+                    curpos = cheats_tv.get_cursor()[0]
+                    if curpos is not None:
+                        valcol = cheats_tv.get_column(5)
+                        "*****", cheats_tv.set_cursor(curpos, valcol)
+                else: scanval_in.grab_focus()
 
     ############################
     # core functions
@@ -106,21 +196,20 @@ class UIBuilder(Gtk.Builder):
     def treeview_append_column(treeview, title: str,
                                sort_id   = -1,
                                resizable = True,
-                               hex_col   = False,
-                               rend_class: type=Gtk.CellRendererText,
+                               data_func = None,
+                               render    : type=Gtk.CellRendererText(),
                                attributes: list=None,
                                properties: list=None,
                                signals   : list=None):
         # create renderer of given type
-        render = rend_class()
         column = Gtk.TreeViewColumn(title)
         column.set_resizable(resizable)
         column.pack_start(render, True)
         treeview.append_column(column)
         if sort_id != -1:
             column.set_sort_column_id(sort_id)
-        if hex_col:
-            column.set_cell_data_func(render, UIBuilder.format16, sort_id)
+        if data_func:
+            column.set_cell_data_func(render, data_func, sort_id)
         if attributes:
             for k,v in attributes:
                 column.add_attribute(render, k,v)
@@ -133,11 +222,11 @@ class UIBuilder(Gtk.Builder):
 
     @staticmethod
     # convert [a,b,c] into a liststore that [[a],[b],[c]], where a,b,c are strings
-    def new_simple_str_liststore(keys: list[str]):
-        stor = Gtk.ListStore(str)
-        for key in keys:
-            stor.append([key])
-        return stor
+    def treeview_remove_entries(treeview):
+        liststore = treeview.get_model()
+        model, pl = treeview.get_selection().get_selected_rows()
+        for path in reversed(pl):
+            liststore.remove(model.get_iter(path))
 
     @staticmethod
     # data is optional data to callback
@@ -194,14 +283,12 @@ class GameConqueror():
 
         ##################################
         # init GUI
-        gcui = UIBuilder()
+        gcui = GcUI()
 
         # init memory editor
-        self.memoryeditor_window = gcui.get_object('MemoryEditor_Window')
         self.memoryeditor_hexview = HexView()
-        self.memoryeditor_window.get_child().pack_start(self.memoryeditor_hexview, True, True, 0)
+        gcui.mmedit_window.get_child().pack_start(self.memoryeditor_hexview, True, True, 0)
         self.memoryeditor_hexview.show_all()
-        self.memoryeditor_address_entry = gcui.get_object('MemoryEditor_Address_Entry')
         self.memoryeditor_hexview.connect('char-changed', self.memoryeditor_hexview_char_changed_cb)
 
         ###
@@ -210,98 +297,61 @@ class GameConqueror():
         for entry in misc.SCAN_VALUE_TYPES:
             self.scan_data_type_combobox.append_text(entry)
         # apply setting
-        UIBuilder.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
+        GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
 
         ###
         # set search scope
         self.search_scope_scale = gcui.get_object('SearchScope_Scale')
         # apply setting
         self.search_scope_scale.set_value(self.search_scope)
-
-        # init scanresult treeview
-        # we may need a cell data func here
-        # create model
-        self.scanresult_tv = gcui.get_object('ScanResult_TreeView')
-        # liststore contents:                     addr,                value, type, valid, offset,              region type, match_id
-        self.scanresult_liststore = Gtk.ListStore(GObject.TYPE_UINT64, str,   str,  bool,  GObject.TYPE_UINT64, str,         int)
-        self.scanresult_tv.set_model(self.scanresult_liststore)
-        # init columns
-        UIBuilder.treeview_append_column(self.scanresult_tv, 'Address', 0, hex_col=True,
-                                    attributes=[('text', 0)],
-                                    properties=[('family', 'monospace')])
-
-        UIBuilder.treeview_append_column(self.scanresult_tv, 'Value', 1,
-                                    attributes=[('text', 0)],
-                                    properties=[('family', 'monospace')])
-
-        UIBuilder.treeview_append_column(self.scanresult_tv, 'Offset', 4, hex_col=True,
-                                    attributes=[('text', 4)],
-                                    properties=[('family', 'monospace')])
-
-        UIBuilder.treeview_append_column(self.scanresult_tv, 'Region Type', 5,
-                                    attributes=[('text', 5)],
-                                    properties=[('family', 'monospace')])
-        # init CheatList TreeView
-        self.cheatlist_tv = gcui.get_object('CheatList_TreeView')
-        # cheatlist contents:                    locked, description, addr,                type, value, valid
-        self.cheatlist_liststore = Gtk.ListStore(bool,   str,         GObject.TYPE_UINT64, str,  str,   bool)
-        self.cheatlist_tv.set_model(self.cheatlist_liststore)
+        # ---
+        model_cheatCombo_type = Gtk.ListStore(str)
+        # CheatList active flag
         self.cheatlist_editing = False
         # Lock
-        UIBuilder.treeview_append_column(self.cheatlist_tv, 'Lock', 0,
-                                    rend_class = Gtk.CellRendererToggle,
+        GcUI.treeview_append_column(gcui.cheatList_tree, 'Lock', 0, render = Gtk.CellRendererToggle(),
                                     attributes = [('active',0)],
                                     properties = [('activatable' , True ),
                                                   ('radio'       , False),
                                                   ('inconsistent', False)],
                                     signals    = [('toggled', self.cheatlist_toggle_lock_cb)])
         # Description
-        UIBuilder.treeview_append_column(self.cheatlist_tv, 'Description', 1,
+        GcUI.treeview_append_column(gcui.cheatList_tree, 'Description', 1,
                                     attributes = [('text',1)],
                                     properties = [('editable', True)],
                                     signals    = [('edited'          , self.cheatlist_edit_description_cb),
                                                   ('editing-started' , self.cheatlist_edit_start),
                                                   ('editing-canceled', self.cheatlist_edit_cancel)])
         # Address
-        UIBuilder.treeview_append_column(self.cheatlist_tv, 'Address', 2, hex_col=True,
+        GcUI.treeview_append_column(gcui.cheatList_tree, 'Address', 2, data_func=GcUI.format16,
                                     attributes = [('text',2)],
                                     properties = [('family', 'monospace')])
         # Type
-        UIBuilder.treeview_append_column(self.cheatlist_tv, 'Type', 3, rend_class = Gtk.CellRendererCombo,
+        GcUI.treeview_append_column(gcui.cheatList_tree, 'Type', 3, render = Gtk.CellRendererCombo(),
                                     attributes = [('text',3)],
                                     properties = [('editable'   , True ),
                                                   ('has-entry'  , False),
-                                                  ('model'      , UIBuilder.new_simple_str_liststore(misc.MEMORY_TYPES)),
+                                                  ('model'      , model_cheatCombo_type),
                                                   ('text-column', 0)],
                                     signals    = [('edited'           , self.cheatlist_edit_type_cb),
                                                   ('editing-started'  , self.cheatlist_edit_start),
                                                   ('editing-canceled' , self.cheatlist_edit_cancel)])
         # Value 
-        UIBuilder.treeview_append_column(self.cheatlist_tv, 'Value', 4,
+        GcUI.treeview_append_column(gcui.cheatList_tree, 'Value', 4,
                                     attributes = [('text',4)],
                                     properties = [('editable', True),
                                                   ('family', 'monospace')],
                                     signals    = [('edited'          , self.cheatlist_edit_value_cb),
                                                   ('editing-started' , self.cheatlist_edit_start),
                                                   ('editing-canceled', self.cheatlist_edit_cancel)])
-        # init ProcessList
-        self.processfilter_input = gcui.get_object('ProcessFilter_Input')
-        self.userfilter_input = gcui.get_object('UserFilter_Input')
-        # init ProcessList_TreeView
-        self.processlist_tv = gcui.get_object('ProcessList_TreeView')
-        self.processlist_liststore = Gtk.ListStore(int, str, str)
-        self.processlist_filter = self.processlist_liststore.filter_new(root=None)
-        self.processlist_filter.set_visible_func(self.processlist_filter_func, data=None)
-        self.processlist_tv.set_model(Gtk.TreeModelSort(model=self.processlist_filter))
-        self.processlist_tv.set_search_column(2)
-        # make processes tree
-        UIBuilder.treeview_append_column(self.processlist_tv, 'PID'    , 0, attributes=[('text',0)]) # first col
-        UIBuilder.treeview_append_column(self.processlist_tv, 'User'   , 1, attributes=[('text',1)]) # second col
-        UIBuilder.treeview_append_column(self.processlist_tv, 'Process', 2, attributes=[('text',2)]) # third col
+        # set list/input keyboard signals
+        gcui.scanVal_input .connect('key-press-event', self.on_KeyPress_handler)
+        gcui.cheatList_tree.connect('key-press-event', self.on_KeyPress_handler)
+        gcui.scanRes_tree  .connect('key-press-event', self.on_KeyPress_handler)
         # get list of things to be disabled during scan
-        self.disablelist = [gcui.reset_button, self.cheatlist_tv , gcui.get_object('processGrid'),
-                            gcui.value_input , self.scanresult_tv, gcui.get_object('buttonGrid'),
-                            self.memoryeditor_window]
+        self.disablelist = [gcui.reset_button, gcui.cheatList_tree, gcui.get_object('processGrid'),
+                            gcui.scanVal_input, gcui.scanRes_tree, gcui.get_object('buttonGrid'),
+                            gcui.mmedit_window]
         # init AddCheatDialog
         self.addcheat_address_input = gcui.get_object('Address_Input')
         self.addcheat_address_input.override_font(Pango.FontDescription("Monospace"))
@@ -312,18 +362,19 @@ class GameConqueror():
         self.addcheat_type_combobox = gcui.get_object('Type_ComboBoxText')
         for entry in misc.MEMORY_TYPES:
             self.addcheat_type_combobox.append_text(entry)
-        UIBuilder.combobox_set_active_item(self.addcheat_type_combobox, self.lock_data_type)
+            model_cheatCombo_type.append([entry])
+        GcUI.combobox_set_active_item(self.addcheat_type_combobox, self.lock_data_type)
         self.Type_ComboBoxText_changed_cb(self.addcheat_type_combobox)
 
         # init popup menu for scanresult
-        self.scanresult_popup = UIBuilder.new_popup_menu([
+        self.scanresult_popup = GcUI.new_popup_menu([
             ('Add to cheat list'    , self.scanresult_popup_cb, 'add_to_cheat_list'),
             ('Browse this address'  , self.scanresult_popup_cb, 'browse_this_address'),
             ('Scan for this address', self.scanresult_popup_cb, 'scan_for_this_address'),
             ('Remove this match'    , self.scanresult_delete_selected_matches, '')
         ])
         # init popup menu for cheatlist
-        self.cheatlist_popup = UIBuilder.new_popup_menu([
+        self.cheatlist_popup = GcUI.new_popup_menu([
             ('Browse this address', self.cheatlist_popup_cb, 'browse_this_address'),
             ('Copy address'       , self.cheatlist_popup_cb, 'copy_address'),
             ('Remove this entry'  , self.cheatlist_popup_cb, 'remove_entry')
@@ -360,7 +411,7 @@ class GameConqueror():
         return True
 
     def MemoryEditor_Handle_Address_cb(self, widget, data=None):
-        txt = self.memoryeditor_address_entry.get_text().strip()
+        txt = self._ui.mmedit_adentry.get_text().strip()
         if txt == '':
             return
         try:
@@ -404,7 +455,7 @@ class GameConqueror():
         return True
 
     def RemoveAllCheat_Button_clicked_cb(self, button, data=None):
-        self.cheatlist_liststore.clear()
+        self._ui.cheatList_list.clear()
         return True
 
     def LoadCheat_Button_clicked_cb(self, button, data=None):
@@ -418,12 +469,8 @@ class GameConqueror():
     def SearchScope_Scale_format_value_cb(self, scale, value, data=None):
         return misc.SEARCH_SCOPE_NAMES[int(value)]
 
-    def Value_Input_activate_cb(self, entry, data=None):
-        self.do_scan()
-        return True
-
     def ScanResult_TreeView_popup_menu_cb(self, widget, data=None):
-        pathlist = self.scanresult_tv.get_selection().get_selected_rows()[1]
+        pathlist = self._ui.scanRes_tree.get_selection().get_selected_rows()[1]
         if len(pathlist):
             self.scanresult_popup.popup(None, None, None, None, 0, 0)
             return True
@@ -431,13 +478,13 @@ class GameConqueror():
 
     def ScanResult_TreeView_button_press_event_cb(self, widget, event, data=None):
         # add to cheat list
-        (model, pathlist) = self.scanresult_tv.get_selection().get_selected_rows()
+        (model, pathlist) = self._ui.scanRes_tree.get_selection().get_selected_rows()
         if event.button == 1 and event.get_click_count()[1] > 1: # left double click
             for path in pathlist:
                 (addr, value, typestr) = model.get(model.get_iter(path), 0, 1, 2)
                 self.add_to_cheat_list(addr, value, typestr)
         elif event.button == 3: # right click
-            path = self.scanresult_tv.get_path_at_pos(int(event.x),int(event.y))
+            path = self._ui.scanRes_tree.get_path_at_pos(int(event.x),int(event.y))
             if path is not None:
                 self.scanresult_popup.popup(None, None, None, None, event.button, event.get_time())
                 return path[0] in pathlist
@@ -445,15 +492,15 @@ class GameConqueror():
 
     def CheatList_TreeView_button_press_event_cb(self, widget, event, data=None):
         if event.button == 3: # right click
-            pathlist = self.cheatlist_tv.get_selection().get_selected_rows()[1]
-            path = self.cheatlist_tv.get_path_at_pos(int(event.x),int(event.y))
+            pathlist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
+            path = self._ui.cheatList_tree.get_path_at_pos(int(event.x),int(event.y))
             if path is not None:
                 self.cheatlist_popup.popup(None, None, None, None, event.button, event.get_time())
                 return path[0] in pathlist
         return False
 
     def CheatList_TreeView_popup_menu_cb(self, widget, data=None):
-        pathlist = self.cheatlist_tv.get_selection().get_selected_rows()[1]
+        pathlist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
         if len(pathlist):
             self.cheatlist_popup.popup(None, None, None, None, 0, 0)
             return True
@@ -489,10 +536,10 @@ class GameConqueror():
 
     def ProcessList_Refilter_Generic(self):
         self.processlist_filter.refilter()
-        self.processlist_tv.set_cursor(0)
+        self._ui.procList_tree.set_cursor(0)
 
     def ProcessList_TreeView_row_activated_cb(self, treeview, path, view_column, data=None):
-        (model, iter) = self.processlist_tv.get_selection().get_selected()
+        (model, iter) = self._ui.procList_tree.get_selection().get_selected()
         if iter is not None:
             (pid, process) = model.get(iter, 0, 2)
             self.select_process(pid, process)
@@ -501,14 +548,14 @@ class GameConqueror():
         return False
 
     def SelectProcess_Button_clicked_cb(self, button, data=None):
-        self.processlist_liststore.clear()
+        self._ui.procList_list.clear()
         for plist in misc.get_process_list():
-            self.processlist_liststore.append(plist)
+            self._ui.procList_list.append(plist)
         self._ui.procList_dialog.show()
         while True:
             res = self._ui.procList_dialog.run()
             if res == Gtk.ResponseType.OK: # -5
-                (model, iter) = self.processlist_tv.get_selection().get_selected()
+                (model, iter) = self._ui.procList_tree.get_selection().get_selected()
                 if iter is None:
                     self._ui.show_error('Please select a process')
                     continue
@@ -525,11 +572,6 @@ class GameConqueror():
     # customed callbacks
     # (i.e. not standard event names are used)
 
-    # Callback to hide window when 'X' button is pressed
-    def hide_window_on_delete_event_cb(self, widget, event, data=None):
-        widget.hide()
-        return True
-
     # Memory editor
 
     def memoryeditor_hexview_char_changed_cb(self, hexview, offset, charval):
@@ -538,19 +580,11 @@ class GameConqueror():
         # return False such that the byte the default handler will be called, and will be displayed correctly 
         return False
 
-    def memoryeditor_key_press_event_cb(self, window, event, data=None):
-        keycode = event.keyval
-        pressedkey = Gdk.keyval_name(keycode)
-        if pressedkey == 'w' and (event.state & Gdk.ModifierType.CONTROL_MASK):
-            self.memoryeditor_window.hide()
-        elif pressedkey == 'Escape':
-            self.memoryeditor_window.hide()
-
     def MemoryEditor_Refresh_Button_clicked_cb(self, button, data=None):
         dlength = len(self.memoryeditor_hexview.payload)
         data = self.read_memory(self.memoryeditor_hexview.base_addr, dlength)
         if data is None:
-            self.memoryeditor_window.hide()
+            self._ui.mmedit_window.hide()
             self._ui.show_error('Cannot read memory')
             return
         old_addr = self.memoryeditor_hexview.get_current_addr()
@@ -580,7 +614,7 @@ class GameConqueror():
         self.cheatlist_editing = False
 
     def scanresult_delete_selected_matches(self, menuitem, data=None):
-        (model, pathlist) = self.scanresult_tv.get_selection().get_selected_rows()
+        (model, pathlist) = self._ui.scanRes_tree.get_selection().get_selected_rows()
         match_id_list = ','.join(str(model.get_value(model.get_iter(path), 6)) for path in pathlist)
         self.command_lock.acquire()
         self.command_send(f'delete {match_id_list}')
@@ -588,7 +622,7 @@ class GameConqueror():
         self.command_lock.release()
 
     def scanresult_popup_cb(self, menuitem, data=None):
-        (model, pathlist) = self.scanresult_tv.get_selection().get_selected_rows()
+        (model, pathlist) = self._ui.scanRes_tree.get_selection().get_selected_rows()
         if data == 'add_to_cheat_list':
             for path in reversed(pathlist):
                 (addr, value, typestr) = model.get(model.get_iter(path), 0, 1, 2)
@@ -603,51 +637,37 @@ class GameConqueror():
             return True
         return False
 
-    def value_input_key_press_event_cb(self, main_window, event, data=None):
-        keycode = event.keyval
-        pressedkey = Gdk.keyval_name(keycode)
-        if pressedkey == 'j' and (event.state & Gdk.ModifierType.CONTROL_MASK):
-            if self.cheatlist_tv.is_focus() == self.scanresult_tv.is_focus():
-                self.scanresult_tv.grab_focus()
-                self.scanresult_tv.set_cursor(0)
-            else:
-                self._ui.value_input.grab_focus()
+    def on_KeyPress_handler(self, target, event, data=None):
+        key  = Gdk.keyval_name(event.keyval)
+        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
 
-    def ScanResult_TreeView_key_press_event_cb(self, scanresult_tv, event, data=None):
-        keycode = event.keyval
-        pressedkey = Gdk.keyval_name(keycode)
-        if pressedkey == 'Return':
-            (model, pathlist) = self.scanresult_tv.get_selection().get_selected_rows()
-            for path in reversed(pathlist):
-                (addr, value, typestr) = model.get(model.get_iter(path), 0, 1, 2)
-                self.add_to_cheat_list(addr, value, typestr)
-        elif pressedkey in {'Delete', 'BackSpace'}:
-            self.scanresult_delete_selected_matches(None)
-        elif pressedkey == 'j' and (event.state & Gdk.ModifierType.CONTROL_MASK):
-            self.cheatlist_tv.grab_focus()
-            if self.cheatlist_tv.get_cursor()[0] is not None:
-                curpos = self.cheatlist_tv.get_cursor()[0]
-                valcol = self.cheatlist_tv.get_column(5)
-                self.cheatlist_tv.set_cursor(curpos, valcol)
+        cheats_tv  = self._ui.cheatList_tree
+        scanres_tv = self._ui.scanRes_tree
+        scanval_in = self._ui.scanVal_input
 
-    def CheatList_TreeView_key_press_event_cb(self, cheatlist_tv, event, data=None):
-        keycode = event.keyval
-        pressedkey = Gdk.keyval_name(keycode)
-        if pressedkey in {'Delete', 'BackSpace'}:
-            (model, pathlist) = self.cheatlist_tv.get_selection().get_selected_rows()
-            for path in reversed(pathlist):
-                self.cheatlist_liststore.remove(model.get_iter(path))
-        elif pressedkey == 'j' and (event.state & Gdk.ModifierType.CONTROL_MASK):
-            self.scanresult_tv.grab_focus()
-            if self.scanresult_tv.get_cursor()[0] is not None:
-                self.scanresult_tv.set_cursor(0)
+        if key == 'Delete' or (key == 'd' and ctrl):
+
+            if target is cheats_tv:
+                GcUI.treeview_remove_entries(cheats_tv)
+            elif target is scanres_tv:
+                self.scanresult_delete_selected_matches(None)
+
+        elif key == 'Return' or (key == 'm' and ctrl):
+
+            if target is scanres_tv:
+                model, plist = scanres_tv.get_selection().get_selected_rows()
+                for path in reversed(plist):
+                    addr, value, typestr = model.get(model.get_iter(path), 0, 1, 2)
+                    self.add_to_cheat_list(addr, value, typestr)
+            elif target is scanval_in:
+                self.do_scan()
 
     def cheatlist_popup_cb(self, menuitem, data=None):
         self.cheatlist_editing = False
-        (model, pathlist) = self.cheatlist_tv.get_selection().get_selected_rows()
+        (model, pathlist) = self._ui.cheatList_tree.get_selection().get_selected_rows()
         if data == 'remove_entry':
             for path in reversed(pathlist):
-                self.cheatlist_liststore.remove(model.get_iter(path)) 
+                self._ui.cheatList_list.remove(model.get_iter(path)) 
             return True
         addr = model.get_value(model.get_iter(pathlist[0]), 2)
         if data == 'browse_this_address':
@@ -660,10 +680,10 @@ class GameConqueror():
         return False
 
     def cheatlist_toggle_lock(self, row):
-        if self.cheatlist_liststore[row][5]: # valid
-            locked = self.cheatlist_liststore[row][0]
+        if self._ui.cheatList_list[row][5]: # valid
+            locked = self._ui.cheatList_list[row][0]
             locked = not locked
-            self.cheatlist_liststore[row][0] = locked
+            self._ui.cheatList_list[row][0] = locked
         if locked:
             #TODO: check value(valid number & not overflow), if failed, unlock it and do nothing
             pass
@@ -673,7 +693,7 @@ class GameConqueror():
         return True
 
     def cheatlist_toggle_lock_cb(self, cellrenderertoggle, row_str, data=None):
-        pathlist = self.cheatlist_tv.get_selection().get_selected_rows()[1]
+        pathlist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
         if not row_str:
             return True
         cur_row = int(row_str)
@@ -700,10 +720,10 @@ class GameConqueror():
 
     def cheatlist_edit_description_cb(self, cell, path, new_text, data=None):
         self.cheatlist_editing = False
-        pathlist = self.cheatlist_tv.get_selection().get_selected_rows()[1]
+        pathlist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
         for path in pathlist:
             row = path[0]
-            self.cheatlist_liststore[row][1] = new_text
+            self._ui.cheatList_list[row][1] = new_text
         return True
 
     def cheatlist_edit_value_cb(self, cell, path, new_text, data=None):
@@ -711,32 +731,32 @@ class GameConqueror():
         # ignore empty value
         if new_text == '':
             return True
-        pathlist = self.cheatlist_tv.get_selection().get_selected_rows()[1]
+        pathlist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
         for path in pathlist:
             row = path[0]
-            if not self.cheatlist_liststore[row][5]: #not valid
+            if not self._ui.cheatList_list[row][5]: #not valid
                 continue
-            self.cheatlist_liststore[row][4] = new_text
-            if self.cheatlist_liststore[row][0]: # locked
+            self._ui.cheatList_list[row][4] = new_text
+            if self._ui.cheatList_list[row][0]: # locked
                 # data_worker will handle this
                 pass
             else:
-                (addr, typestr, value) = self.cheatlist_liststore[row][2:5]
+                (addr, typestr, value) = self._ui.cheatList_list[row][2:5]
                 self.write_value(addr, typestr, value)
         return True
 
     def cheatlist_edit_type_cb(self, cell, path, new_text, data=None):
         self.cheatlist_editing = False
-        pathlist = self.cheatlist_tv.get_selection().get_selected_rows()[1]
+        pathlist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
         for path in pathlist:
             row = path[0]
-            (addr, typestr, value) = self.cheatlist_liststore[row][2:5]
+            (addr, typestr, value) = self._ui.cheatList_list[row][2:5]
             if new_text == typestr:
                 continue
             if new_text in {'bytearray', 'string'}:
-                self.cheatlist_liststore[row][4] = misc.bytes2value(new_text, self.read_memory(addr, misc.get_type_size(typestr, value)))
-            self.cheatlist_liststore[row][3] = new_text
-            self.cheatlist_liststore[row][0] = False # unlock
+                self._ui.cheatList_list[row][4] = misc.bytes2value(new_text, self.read_memory(addr, misc.get_type_size(typestr, value)))
+            self._ui.cheatList_list[row][3] = new_text
+            self._ui.cheatList_list[row][0] = False # unlock
         return True
 
     # Process list
@@ -756,7 +776,7 @@ class GameConqueror():
 
     def write_cheat_list(self, file):
         obj = { 'cheat_list' : [] }
-        for row in self.cheatlist_liststore:
+        for row in self._ui.cheatList_list:
             obj['cheat_list'].append(list(row))
         json.dump(obj, file)
 
@@ -767,8 +787,8 @@ class GameConqueror():
             return
         self.reset_scan()
         self.scan_data_type = 'int%d' % bits
-        self._ui.value_input.set_text('%#x' % addr)
-        UIBuilder.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
+        self._ui.scanVal_input.set_text('%#x' % addr)
+        GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
         self.do_scan()
 
     def browse_memory(self, addr=None):
@@ -816,7 +836,7 @@ class GameConqueror():
         self.memoryeditor_hexview.editable = (selected_region['flags'][1] == 'w')
 
         self.memoryeditor_hexview.show_addr(addr)
-        self.memoryeditor_window.show()
+        self._ui.mmedit_window.show()
 
     # this callback will be called from other thread
     def progress_watcher(self):
@@ -836,9 +856,9 @@ class GameConqueror():
                 vt = misc.TYPENAMES_S2G[t]
                 break
         if at_end:
-            self.cheatlist_liststore.append([False, desc, addr, vt, str(value), True])
+            self._ui.cheatList_list.append([False, desc, addr, vt, str(value), True])
         else:
-            self.cheatlist_liststore.prepend([False, desc, addr, vt, str(value), True])
+            self._ui.cheatList_list.prepend([False, desc, addr, vt, str(value), True])
 
     def select_process(self, pid: str, process_name: str):
         # ask backend for attaching the target process
@@ -860,8 +880,8 @@ class GameConqueror():
         self.reset_scan(pid)
 
         # unlock all entries in cheat list
-        for i in range(len(self.cheatlist_liststore)):
-            self.cheatlist_liststore[i][0] = False
+        for i in range(len(self._ui.cheatList_list)):
+            self._ui.cheatList_list[i][0] = False
 
     def command_send(self, cmd: str, cap = 1024):
         "**", self._bg.sendall(cmd.encode())
@@ -878,7 +898,7 @@ class GameConqueror():
 
     def reset_scan(self, reset_pid = -1):
         # reset search type and value type
-        self.scanresult_liststore.clear()
+        self._ui.scanRes_list.clear()
 
         self.command_lock.acquire()
         self.command_send(f'reset {reset_pid}')
@@ -888,7 +908,7 @@ class GameConqueror():
         self._ui.scan_progbar.set_fraction(0.0)
         self._ui.scan_options.set_sensitive(True)
         self.is_first_scan = True
-        self._ui.value_input.grab_focus()
+        self._ui.scanVal_input.grab_focus()
 
     def apply_scan_settings (self):
         # scan data type
@@ -898,7 +918,7 @@ class GameConqueror():
 
         # Tell the scanresult sort function if a numeric cast is needed
         isnumeric = ('int' in datatype or 'float' in datatype or 'number' in datatype)
-        self.scanresult_liststore.set_sort_func(1, UIBuilder.treeview_sort_cmp, (1, isnumeric))
+        self._ui.scanRes_list.set_sort_func(1, GcUI.treeview_sort_cmp, (1, isnumeric))
 
         self.command_lock.acquire()
         # search scope
@@ -915,7 +935,7 @@ class GameConqueror():
             return
         assert(self.scan_data_type_combobox.get_active() >= 0)
         data_type = self.scan_data_type_combobox.get_active_text()
-        cmd = self._ui.value_input.get_text()
+        cmd = self._ui.scanVal_input.get_text()
    
         try:
             cmd = misc.check_scan_command(data_type, cmd, self.is_first_scan)
@@ -959,7 +979,7 @@ class GameConqueror():
         # Replace stop_button with scan_button
         self._ui.stop_button.set_visible(False)
         self._ui.scan_button.set_visible(True)
-        self._ui.value_input.grab_focus()
+        self._ui.scanVal_input.grab_focus()
 
         self.is_scanning = False
         self.update_scan_result()
@@ -972,7 +992,7 @@ class GameConqueror():
         self._ui.main_window.set_title('Found: %d'% info['found'])
 
         if (info['found'] > SCAN_RESULT_LIST_LIMIT) or info['is_process_dead']:
-            self.scanresult_liststore.clear()
+            self._ui.scanRes_list.clear()
             return
 
         addr = GObject.Value(GObject.TYPE_UINT64)
@@ -981,9 +1001,9 @@ class GameConqueror():
 
         matches = self.command_send(f'list L{cnt}', 4096)
 
-        self.scanresult_tv.set_model(None)
+        self._ui.scanRes_tree.set_model(None)
         # temporarily disable model for scanresult_liststore for the sake of performance
-        self.scanresult_liststore.clear()
+        self._ui.scanRes_list.clear()
 
         while len(matches):
             if IS_DEBUG:
@@ -1002,10 +1022,10 @@ class GameConqueror():
                 # Still 5x faster even with the extra baggage
                 addr.set_uint64(int(m['addr'], 16))
                 off .set_uint64(int(m['off'] , 16))
-                self.scanresult_liststore.insert_with_valuesv(-1, [0, 1, 2, 3, 4, 5, 6], [addr, val, t, True, off, rt, mid])
-                # self.scanresult_liststore.append([addr, val, t, True, off, rt, mid])
+                self._ui.scanRes_list.insert_with_valuesv(-1, [0, 1, 2, 3, 4, 5, 6], [addr, val, t, True, off, rt, mid])
+                # self._ui.scanRes_list.append([addr, val, t, True, off, rt, mid])
             matches = self.command_send(f'next L{cnt}', 4096)
-        self.scanresult_tv.set_model(self.scanresult_liststore)
+        self._ui.scanRes_tree.set_model(self._ui.scanRes_list)
 
     # return range(r1, r2) where all rows between r1 and r2 (EXCLUSIVE) are visible
     # return range(0, 0) if no row visible
@@ -1031,23 +1051,23 @@ class GameConqueror():
     def refresh_tree(self, new_cnt:int):
         if self._cnt != new_cnt:
             # Write to memory locked values in cheat list
-            for i in self.cheatlist_liststore:
+            for i in self._ui.cheatList_list:
                 if i[0] and i[5]: # locked and valid
                     self.write_value(i[2], i[3], i[4]) # addr, typestr, value
             # Update visible (and unlocked) cheat list rows
-            rows = self.get_visible_rows(self.cheatlist_tv)
+            rows = self.get_visible_rows(self._ui.cheatList_tree)
             for i in rows:
-                locked, desc, addr, typestr, value, valid = self.cheatlist_liststore[i]
+                locked, desc, addr, typestr, value, valid = self._ui.cheatList_list[i]
                 if valid and not locked:
                     newvalue = self.read_value(addr, typestr, value)
                     if newvalue is None:
-                        self.cheatlist_liststore[i] = (False, desc, addr, typestr, '??', False)
+                        self._ui.cheatList_list[i] = (False, desc, addr, typestr, '??', False)
                     elif newvalue != value and not self.cheatlist_editing:
-                        self.cheatlist_liststore[i] = (locked, desc, addr, typestr, str(newvalue), valid)
+                        self._ui.cheatList_list[i] = (locked, desc, addr, typestr, str(newvalue), valid)
             # Update visible scanresult rows
-            rows = self.get_visible_rows(self.scanresult_tv)
+            rows = self.get_visible_rows(self._ui.scanRes_tree)
             for i in rows:
-                row = self.scanresult_liststore[i]
+                row = self._ui.scanRes_list[i]
                 addr, cur_value, scanmem_type, valid = row[:4]
                 if valid:
                     new_value = self.read_value(addr, misc.TYPENAMES_S2G[scanmem_type.split(' ', 1)[0]], cur_value)

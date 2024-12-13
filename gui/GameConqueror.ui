@@ -85,8 +85,6 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
     <property name="resizable">False</property>
     <property name="icon">GameConqueror.svg</property>
     <property name="type_hint">utility</property>
-    <signal name="delete-event" handler="hide_window_on_delete_event_cb" swapped="no"/>
-    <signal name="key-press-event" handler="memoryeditor_key_press_event_cb" swapped="no"/>
     <child>
       <object class="GtkBox" id="vbox2">
         <property name="visible">True</property>
@@ -248,7 +246,6 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
                         <property name="can_focus">True</property>
                         <property name="rubber_banding">True</property>
                         <signal name="button-press-event" handler="ScanResult_TreeView_button_press_event_cb" swapped="no"/>
-                        <signal name="key-press-event" handler="ScanResult_TreeView_key_press_event_cb" swapped="no"/>
                         <signal name="popup-menu" handler="ScanResult_TreeView_popup_menu_cb" swapped="no"/>
                         <child internal-child="selection">
                           <object class="GtkTreeSelection" id="ScanResult_TreeSelection">
@@ -333,10 +330,6 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
                         <property name="hexpand">True</property>
                         <property name="activates_default">True</property>
                         <property name="placeholder_text" translatable="yes">Insert value to search for (CTRL+K/L)</property>
-                        <signal name="activate" handler="Value_Input_activate_cb" swapped="no"/>
-                        <signal name="key-press-event" handler="value_input_key_press_event_cb" swapped="no"/>
-                        <accelerator key="k" signal="grab-focus" modifiers="GDK_CONTROL_MASK"/>
-                        <accelerator key="l" signal="grab-focus" modifiers="GDK_CONTROL_MASK"/>
                       </object>
                       <packing>
                         <property name="left_attach">1</property>
@@ -723,7 +716,6 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
                 <property name="can_focus">True</property>
                 <property name="reorderable">True</property>
                 <signal name="button-press-event" handler="CheatList_TreeView_button_press_event_cb" swapped="no"/>
-                <signal name="key-press-event" handler="CheatList_TreeView_key_press_event_cb" swapped="no"/>
                 <signal name="popup-menu" handler="CheatList_TreeView_popup_menu_cb" swapped="no"/>
                 <child internal-child="selection">
                   <object class="GtkTreeSelection" id="CheatList_TreeSelection">
@@ -793,7 +785,6 @@ Special thanks: Igor Gnatenko, Mattias Muenster, Zhang Zhe</property>
     <property name="icon">GameConqueror.svg</property>
     <property name="type_hint">dialog</property>
     <property name="transient_for">MainWindow</property>
-    <signal name="delete-event" handler="hide_window_on_delete_event_cb" swapped="no"/>
     <child internal-child="vbox">
       <object class="GtkBox" id="dialog-vbox3">
         <property name="visible">True</property>
@@ -1050,7 +1041,6 @@ Special thanks: Igor Gnatenko, Mattias Muenster, Zhang Zhe</property>
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="activates_default">True</property>
-                        <signal name="changed" handler="ProcessFilter_Input_changed_cb" swapped="no"/>
                       </object>
                       <packing>
                         <property name="left_attach">1</property>
@@ -1062,7 +1052,6 @@ Special thanks: Igor Gnatenko, Mattias Muenster, Zhang Zhe</property>
                         <property name="visible">True</property>
                         <property name="can_focus">True</property>
                         <property name="activates_default">True</property>
-                        <signal name="changed" handler="UserFilter_Input_changed_cb" swapped="no"/>
                       </object>
                       <packing>
                         <property name="left_attach">1</property>
