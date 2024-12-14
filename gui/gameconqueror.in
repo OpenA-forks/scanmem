@@ -13,6 +13,8 @@ PKEXEC=$(command -v "pkexec")
 PROCID=""
 CONFIG="$HOME/.config/scanmem/GC.cfg"
 DEBUG=
+NOT_PERMITED=
+RUNNING=
 
 for i in "$@"; do
   case $i in
@@ -29,7 +31,8 @@ for i in "$@"; do
       echo "                      [i8, i16, i32, i64, f32, f64, bytes, str]"
       echo "options:"
       echo "  --pid=%d             PID of the process"
-      echo "  --cfg=%s             file or keys separated by `;`"
+      echo "  --cfg=%s             file or keys separated by [;]"
+      echo "  --np                 run without permissons (auto: if don't have policykit)"
       echo ""
       echo "  -v, --version        print program's version"
       echo "  -h, --help           show this help message"
@@ -44,19 +47,17 @@ for i in "$@"; do
       ;;
     --cfg=*) CONFIG="${i#*=}";;
     --pid=*) PROCID="${i#*=}";;
+    --np   ) NOT_PERMITED=1  ;;
     --dbg  ) DEBUG=1
       ;;
   esac
 done
 
 pk_exec() {
-  if [ ! -z "$DEBUG" ]; then
+  if [ ! -z "$NOT_PERMITED" ]; then
     sleep 1 && "$@"
   else
     pkexec "$@"
-  fi
-  if [ -e "$SOCKET" ]; then
-    rm -rf "$SOCKET"
   fi
 }
 
@@ -81,9 +82,18 @@ py_gameconqueror()
 }
 
 if [ -e "$SOCKET" ]; then
+  RUNNING=$(lsof "$SOCKET")
+  if [ -z "$RUNNING" ]; then
+    rm -rf "$SOCKET"
+  fi
+fi
+
+if [ -z "$PKEXEC" ]; then
+  NOT_PERMITED=1
+fi
+
+if [ ! -z "$RUNNING" ]; then
   echo "allready running!"
-elif [ -z "$PKEXEC" ]; then
-  echo "install policykit!"
 else
   py_gameconqueror&
   py_scanmem

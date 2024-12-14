@@ -61,7 +61,7 @@ class Scanmem():
         This function is NOT thread safe, send only one command at a time.
         
         cmd: command to run
-        get_output: if True, return in a string what libscanmem would print to stdout
+        raw_out: if True, return in a string what libscanmem would print to stdout
         """
         with tempfile.TemporaryFile() as directed_file:
             backup_stdout_fileno = os.dup(sys.stdout.fileno())
@@ -73,11 +73,9 @@ class Scanmem():
             os.close(backup_stdout_fileno)
             directed_file.seek(0)
             if not raw_out:
-                lines = directed_file.readlines()
-                self._itr = self.gen_match_rows(lines)
+                self._itr = self.gen_match_rows(directed_file.readlines())
             else:
-                buf = directed_file.read()
-                return '{"chunk":[%s]}'% ','.join(map(lambda b: '%d'%b, buf))
+                return '{"raw":[%s]}'% ','.join(map(str,directed_file.read()))
 
     def exec_command(self, cmd: str):
         self._lib.sm_backend_exec_cmd(ctypes.c_char_p(cmd.encode()))
@@ -175,7 +173,7 @@ class Scanmem():
             try:
                 resp, loop = self.switch(data.decode())
             except Exception as e:
-                resp = '{"error":"%s"}'% e.__str__()
+                resp = '{"error":"%s"}'% e.args[0]
             finally:
                 # Send a response back to the server
                 connect.sendall(f'[{resp}]'.encode())

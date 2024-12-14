@@ -223,10 +223,9 @@ class GcUI(Gtk.Builder):
     @staticmethod
     # convert [a,b,c] into a liststore that [[a],[b],[c]], where a,b,c are strings
     def treeview_remove_entries(treeview):
-        liststore = treeview.get_model()
-        model, pl = treeview.get_selection().get_selected_rows()
-        for path in reversed(pl):
-            liststore.remove(model.get_iter(path))
+        lstore, plist = treeview.get_selection().get_selected_rows()
+        for path in reversed(plist):
+            lstore.remove(lstore.get_iter(path))
 
     @staticmethod
     # data is optional data to callback
@@ -829,7 +828,7 @@ class GameConqueror():
         if data is None:
             self._ui.show_error('Cannot read memory')
             return
-        self.memoryeditor_hexview.payload = misc.str2bytes(data)
+        self.memoryeditor_hexview.payload = bytes(data)
         self.memoryeditor_hexview.base_addr = start_addr
         
         # set editable flag
@@ -891,9 +890,8 @@ class GameConqueror():
             if len(data) and 'error' in data[0]:
                 raise Exception(data[0]['error'])
         except Exception as e:
-            if IS_DEBUG:
-                print(f" -*-*- {buf.decode()}")
-            self._ui.show_error(e.__str__())
+            cmd_n = cmd.split(' ',1)[0]
+            self._ui.show_error(f'Error [{cmd_n}] @ {e.args[0]}')
         return data
 
     def reset_scan(self, reset_pid = -1):
@@ -1085,19 +1083,18 @@ class GameConqueror():
     def read_memory(self, addr, length):
         if not isinstance(addr,str):
             addr = '%x'%(addr,)
+        cap = length * 4 + 16
 
         self.command_lock.acquire()
-        data = self.command_send(f'dump {addr} {length}')
-        print(data)
-        data = data[0]['chunk']
+        data = self.command_send(f'dump {addr} {length}', cap if cap > 1024 else 1024)[0]
         self.command_lock.release()
 
         # TODO raise Exception here isn't good
-        if len(data) != length:
+        if len(data['raw']) != length:
             # self._ui.show_error('Cannot access target memory')
-            data = None
-        return data
-            
+            return None
+        return data['raw']
+
     # addr could be int or str
     def write_value(self, addr, typestr, value):
         if not isinstance(addr,str):
