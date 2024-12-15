@@ -130,11 +130,10 @@ class Scanmem():
         return ','.join(rows)
 
     def wrk_scan_matching(self, val: str):
-        th = threading.Thread(target=self._lib.sm_backend_exec_cmd,
-                              name='scan-matching',
+        self._th = threading.Thread(target=self._lib.sm_backend_exec_cmd,
+                              name='scanmem-worker',
                               args=(ctypes.c_char_p(val.encode()),))
-        th.daemon = True
-        th.start()
+        self._th.start()
 
     def switch(self, cmd: str):
         do_exit = not cmd or cmd.startswith('exit')
@@ -158,7 +157,7 @@ class Scanmem():
         elif cmd.startswith('stop'):
             self.set_stop_flag()
         elif cmd.startswith('find'):
-            self.exec_command(cmd[5:])
+            self.wrk_scan_matching(cmd[5:])
         elif cmd.startswith('reset'):
             self.process_reset(cmd[5:].strip())
         else: # possible options separated by lines

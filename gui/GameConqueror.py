@@ -842,7 +842,9 @@ class GameConqueror():
         if self.command_lock.acquire(blocking=False):
             pgss = self.command_send('pgss')[0]['scan_progress']
             self._ui.scan_progbar.set_fraction(pgss)
-            self.is_scanning = (pgss <= 1.0)
+            if pgss >= 1.0:
+                self.is_scanning = False
+                self.scan_thread_func()
             self.command_lock.release()
         return self.is_scanning and not self.exiting_flag
 
@@ -908,22 +910,13 @@ class GameConqueror():
         self.is_first_scan = True
         self._ui.scanVal_input.grab_focus()
 
-    def apply_scan_settings (self):
-        # scan data type
-        assert(self.scan_data_type_combobox.get_active() >= 0)
-        datatype = self.scan_data_type_combobox.get_active_text()
-        scopeval = int(self.search_scope_scale.get_value()) + 1
-
+    def apply_scan_settings(self, data_type: str, scan_level: int, is_number = True):
         # Tell the scanresult sort function if a numeric cast is needed
-        isnumeric = ('int' in datatype or 'float' in datatype or 'number' in datatype)
-        self._ui.scanRes_list.set_sort_func(1, GcUI.treeview_sort_cmp, (1, isnumeric))
-
-        self.command_lock.acquire()
+        self._ui.scanRes_list.set_sort_func(1, GcUI.treeview_sort_cmp, (1, is_number))
         # search scope
-        self.command_send(f'option scan_data_type {datatype}\n option region_scan_level {scopeval}')
+        self.command_send(f'option scan_data_type {data_type}\n option region_scan_level {scan_level}')
         # TODO: ugly, reset to make region_scan_level taking effect
         self.command_send('reset')
-        self.command_lock.release()
 
     # perform scanning through backend
     # set GUI if needed
@@ -931,58 +924,55 @@ class GameConqueror():
         if self._pid == 0:
             self._ui.show_error('Please select a process')
             return
+        # scan data type
         assert(self.scan_data_type_combobox.get_active() >= 0)
         data_type = self.scan_data_type_combobox.get_active_text()
-        cmd = self._ui.scanVal_input.get_text()
-   
+        is_number = ('int' in data_type or 'float' in data_type or 'number' in data_type)
+        search_val = self._ui.scanVal_input.get_text()
+        scan_level = self.search_scope_scale.get_value()
+
         try:
-            cmd = misc.check_scan_command(data_type, cmd, self.is_first_scan)
+            cmd = misc.check_scan_command(data_type, search_val, self.is_first_scan)
+            lvl = int(scan_level) + 1
         except Exception as e:
             # this is not quite good
             self._ui.show_error(e.args[0])
             return
 
-        # disable the window before perform scanning, such that if result come so fast, we won't mess it up
-        self._ui.scan_options.set_sensitive(False)
-
-        # disable set of widgets interfering with the scan
-        for wid in self.disablelist:
-            wid.set_sensitive(False)
-        
-        # Replace scan_button with stop_button
-        self._ui.scan_button.set_visible(False)
-        self._ui.stop_button.set_visible(True)
-
-        self.is_scanning = True
+        self.command_lock.acquire()
         # set scan options only when first scan, since this will reset backend
         if self.is_first_scan:
-            self.apply_scan_settings()
             self.is_first_scan = False
-        GLib.source_remove(self._watch_id)
-        self._watch_id = GLib.timeout_add(PROGRESS_INTERVAL,
-            self.progress_watcher, priority=GLib.PRIORITY_DEFAULT_IDLE)
+            self.apply_scan_settings(data_type, lvl, is_number)
+        self.is_scanning = True
         self.scan_thread_func(cmd)
-
-    def scan_thread_func(self, cmd: str):
-        self.command_lock.acquire()
-        self.command_send(f'find {cmd}')
-        GLib.source_remove(self._watch_id)
-        self._watch_id = GLib.timeout_add(DATA_WORKER_INTERVAL, self.data_worker)
-        self._ui.scan_progbar.set_fraction(1.0)
-
-        # enable set of widgets interfering with the scan
-        for wid in self.disablelist:
-            wid.set_sensitive(True)
-
-        # Replace stop_button with scan_button
-        self._ui.stop_button.set_visible(False)
-        self._ui.scan_button.set_visible(True)
-        self._ui.scanVal_input.grab_focus()
-
-        self.is_scanning = False
-        self.update_scan_result()
-
         self.command_lock.release()
+
+    def set_ui_deactive(self, active = False):
+        # disable the window before perform scanning, such that if result come so fast, we won't mess it up
+        self._ui.scan_options.set_sensitive(active)
+        # disable set of widgets interfering with the scan
+        for wid in [self._ui.reset_button,  self._ui.cheatList_tree, self._ui.get_object('processGrid'),
+                    self._ui.scanVal_input, self._ui.  scanRes_tree, self._ui.get_object('buttonGrid'),
+                    self._ui.mmedit_window]:
+            wid.set_sensitive(active)
+        # Replace scan_button with stop_button
+        self._ui.scan_button.set_visible(active)
+        self._ui.stop_button.set_visible(not active)
+
+    def scan_thread_func(self, cmd: str = None):
+        # Toggle scaning flag
+        GLib.source_remove(self._watch_id)
+        if cmd is not None:
+            self._watch_id = GLib.timeout_add(PROGRESS_INTERVAL, self.progress_watcher,
+                                              priority=GLib.PRIORITY_DEFAULT_IDLE)
+            self.set_ui_deactive(active=False)
+            self.command_send(f'find {cmd}')
+        else:
+            self._watch_id = GLib.timeout_add(DATA_WORKER_INTERVAL, self.data_worker)
+            self.set_ui_deactive(active=True)
+            self._ui.scanVal_input.grab_focus()
+            self.update_scan_result()
 
     def update_scan_result(self):
 
