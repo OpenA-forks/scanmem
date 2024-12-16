@@ -744,18 +744,17 @@ class GameConqueror():
                 self.write_value(addr, typestr, value)
         return True
 
-    def cheatlist_edit_type_cb(self, cell, path, new_text, data=None):
+    def cheatlist_edit_type_cb(self, cell, path, new_type, data=None):
         self.cheatlist_editing = False
-        pathlist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
-        for path in pathlist:
-            row = path[0]
-            (addr, typestr, value) = self._ui.cheatList_list[row][2:5]
-            if new_text == typestr:
-                continue
-            if new_text in {'bytearray', 'string'}:
-                self._ui.cheatList_list[row][4] = misc.bytes2value(new_text, self.read_memory(addr, misc.get_type_size(typestr, value)))
-            self._ui.cheatList_list[row][3] = new_text
-            self._ui.cheatList_list[row][0] = False # unlock
+        plist = self._ui.cheatList_tree.get_selection().get_selected_rows()[1]
+        for p in plist:
+            row = self._ui.cheatList_list[p[0]]
+            addr, cur_type, val = row[2:5]
+            if new_type != cur_type:
+                row[0] = False # unlock
+                row[3] = new_type
+                if new_type in {'bytearray', 'string'}:
+                    row[4] = self.read_value(addr, cur_type, val, new_type)
         return True
 
     # Process list
@@ -1045,20 +1044,21 @@ class GameConqueror():
             # Update visible (and unlocked) cheat list rows
             rows = self.get_visible_rows(self._ui.cheatList_tree)
             for i in rows:
-                locked, desc, addr, typestr, value, valid = self._ui.cheatList_list[i]
-                if valid and not locked:
-                    newvalue = self.read_value(addr, typestr, value)
-                    if newvalue is None:
+                lock, desc, addr, typestr, value, valid = self._ui.cheatList_list[i]
+                if valid and not lock:
+                    new_value = self.read_value(addr, typestr, value, typestr)
+                    if new_value is None:
                         self._ui.cheatList_list[i] = (False, desc, addr, typestr, '??', False)
-                    elif newvalue != value and not self.cheatlist_editing:
-                        self._ui.cheatList_list[i] = (locked, desc, addr, typestr, str(newvalue), valid)
+                    elif new_value != value and not self.cheatlist_editing:
+                        self._ui.cheatList_list[i] = (lock, desc, addr, typestr, str(new_value), valid)
             # Update visible scanresult rows
             rows = self.get_visible_rows(self._ui.scanRes_tree)
             for i in rows:
                 row = self._ui.scanRes_list[i]
-                addr, cur_value, scanmem_type, valid = row[:4]
+                addr, cur_value, cur_type, valid = row[:4]
                 if valid:
-                    new_value = self.read_value(addr, misc.TYPENAMES_S2G[scanmem_type.split(' ', 1)[0]], cur_value)
+                    typestr = misc.TYPENAMES_S2G[cur_type.split(' ', 1)[0]]
+                    new_value = self.read_value(addr, typestr, cur_value, typestr)
                     if new_value is not None:
                         row[1] = str(new_value)
                     else:
@@ -1066,8 +1066,10 @@ class GameConqueror():
                         row[3] = False
             self._cnt = new_cnt
 
-    def read_value(self, addr, typestr, prev_value):
-        return misc.bytes2value(typestr, self.read_memory(addr, misc.get_type_size(typestr, prev_value)))
+    def read_value(self, addr, in_type, val, out_type):
+        size = misc.get_type_size(in_type, val)
+        buf  = self.read_memory(addr, size)
+        return misc.bytes2value(out_type, buf)
     
     # addr could be int or str
     def read_memory(self, addr, length):

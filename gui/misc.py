@@ -137,7 +137,7 @@ def check_int(data_type: str, num: str):
     return
 
 # return the size in bytes of the value in memory
-def get_type_size(data_type: str, data: bytearray | str | int):
+def get_type_size(data_type: str, data: list[int] | str | int):
     # int or float type; fixed length
     if data_type in TYPESIZES_G2S:
         return TYPESIZES_G2S[data_type][0]
@@ -148,18 +148,15 @@ def get_type_size(data_type: str, data: bytearray | str | int):
     return -1
 
 # parse bytes dumped by scanmem into number, string, etc.
-def bytes2value(data_type: str, data: bytearray | str | int):
-    if data_type is None:
-        return None
-    elif data_type in TYPESIZES_G2S:
-        return struct.unpack(TYPESIZES_G2S[data_type][1], data)[0]
+def bytes2value(data_type: str, data: list[int]):
+    if  data_type in TYPESIZES_G2S:
+        return struct.unpack(TYPESIZES_G2S[data_type][1], bytes(data))[0]
     elif data_type == 'string':
-        return data.decode(errors='replace')
+        return bytes(data).decode(errors='replace')
     elif data_type == 'bytearray':
-        data = bytearray(data)
-        return ' '.join(['%02x' %(i,) for i in data])
+        return ' '.join(['%02x'% i for i in data])
     else:
-        return data
+        return None if data_type is None else data
 
 # return negative if unknown
 def get_pointer_width():
