@@ -21,25 +21,18 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, sys, socket, misc, locale, gettext, threading, json, gi
+import os, sys, socket, misc, threading, json, gi
 # check toolkit version
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GObject, GLib, Pango
 
 SOCK_PATH   = os.environ['SCANMEM_SOCKET']
-GETTEXT_PKG = os.environ['SCANMEM_GETTEXT']
-LOCALE_DIR  = os.environ['SCANMEM_LOCALEDIR']
 UI_GTK_PATH = os.environ['SCANMEM_UIGTK']
 VERSION     = os.environ['SCANMEM_VERSION']
 IS_DEBUG    = os.environ['SCANMEM_DEBUG']
 HOMEPAGE    = os.environ['SCANMEM_HOMEPAGE']
 
 from hexview import HexView
-
-# In some locale, ',' is used in float numbers
-locale.setlocale(locale.LC_NUMERIC, 'C')
-locale.bindtextdomain(GETTEXT_PKG, LOCALE_DIR)
-gettext.install(GETTEXT_PKG, LOCALE_DIR, names=('_'))
 
 ADDR_T = GObject.TYPE_UINT64
 PROGRESS_INTERVAL = 100 # for scan progress updates
@@ -52,7 +45,7 @@ class GcUI(Gtk.Builder):
     def __init__(self):
         super(GcUI, self).__init__()
 
-        self.set_translation_domain(GETTEXT_PKG)
+        self.set_translation_domain(misc.DOMAIN_TRS)
         self.add_from_file(UI_GTK_PATH)
 
         self.    main_window = self.get_object('MainWindow')
@@ -976,7 +969,7 @@ class GameConqueror():
     def update_scan_result(self):
 
         info = self.command_send(f'info {self._pid}')[0]
-        self._ui.main_window.set_title('Found: %d'% info['found'])
+        self._ui.main_window.set_title(misc.ltr('Found: %d')% info['found'])
 
         if (info['found'] > SCAN_RESULT_LIST_LIMIT) or info['is_process_dead']:
             self._ui.scanRes_list.clear()

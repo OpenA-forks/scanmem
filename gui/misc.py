@@ -19,7 +19,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, socket, struct, platform
+import os, socket, struct, platform, locale
 
 SEARCH_SCOPE_NAMES = ['Basic', 'Normal', 'ReadOnly', 'Full']
 
@@ -47,6 +47,16 @@ TYPENAMES_S2G = {
     'bytearray':'bytearray',
     'string':'string'
 }
+
+DOMAIN_TRS = os.environ['SCANMEM_GETTEXT']
+LOCALE_DIR = os.environ['SCANMEM_LOCALEDIR']
+
+# In some locale, ',' is used in float numbers
+locale.setlocale(locale.LC_NUMERIC, 'C')
+locale.bindtextdomain(DOMAIN_TRS, LOCALE_DIR)
+# localize string
+def ltr(msg: str):
+    return locale.gettext(DOMAIN_TRS, msg)
 
 # check command syntax, data range etc.
 # return a valid scanmem command
