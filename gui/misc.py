@@ -56,7 +56,7 @@ locale.setlocale(locale.LC_NUMERIC, 'C')
 locale.bindtextdomain(DOMAIN_TRS, LOCALE_DIR)
 # localize string
 def ltr(msg: str):
-    return locale.gettext(DOMAIN_TRS, msg)
+    return locale.dgettext(DOMAIN_TRS, msg)
 
 # check command syntax, data range etc.
 # return a valid scanmem command
