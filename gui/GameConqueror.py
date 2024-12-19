@@ -221,13 +221,13 @@ class GcUI(Gtk.Builder):
             lstore.remove(lstore.get_iter(path))
 
     @staticmethod
-    # data is optional data to callback
-    def new_popup_menu(itemprops: list[ tuple[str] ]):
+    # target is optional data to callback
+    def new_popup_menu(target, itemprops: list[ tuple[str] ]):
         menu = Gtk.Menu()
-        for name,call,data in itemprops:
-            item = Gtk.MenuItem(label=name)
+        for label,handler in itemprops:
+            item = Gtk.MenuItem(label=misc.ltr(label))
             menu.append(item)
-            item.connect('activate', call, data)
+            item.connect('activate', handler, target)
         menu.show_all()
         return menu
 
@@ -271,7 +271,6 @@ class GameConqueror():
         self.lock_data_type = 'int32'
         self.scan_data_type = 'int32'
         self.search_scope   = 1 # normal
-        self.clipboard      = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 
         ##################################
         # init GUI
@@ -359,17 +358,17 @@ class GameConqueror():
         self.Type_ComboBoxText_changed_cb(self.addcheat_type_combobox)
 
         # init popup menu for scanresult
-        self.scanresult_popup = GcUI.new_popup_menu([
-            ('Add to cheat list'    , self.scanresult_popup_cb, 'add_to_cheat_list'),
-            ('Browse this address'  , self.scanresult_popup_cb, 'browse_this_address'),
-            ('Scan for this address', self.scanresult_popup_cb, 'scan_for_this_address'),
-            ('Remove this match'    , self.scanresult_delete_selected_matches, '')
+        self.scanresult_popup = GcUI.new_popup_menu(gcui.scanRes_tree, [
+            ('Add to cheat list'    , self.on_PopupMenu_Add),
+            ('Browse this address'  , self.on_PopupMenu_Browse),
+            ('Scan for this address', self.on_PopupMenu_Scan),
+            ('Remove this match'    , self.on_PopupMenu_Remove)
         ])
         # init popup menu for cheatlist
-        self.cheatlist_popup = GcUI.new_popup_menu([
-            ('Browse this address', self.cheatlist_popup_cb, 'browse_this_address'),
-            ('Copy address'       , self.cheatlist_popup_cb, 'copy_address'),
-            ('Remove this entry'  , self.cheatlist_popup_cb, 'remove_entry')
+        self.cheatlist_popup = GcUI.new_popup_menu(gcui.cheatList_tree, [
+            ('Browse this address', self.on_PopupMenu_Browse),
+            ('Copy address'       , self.on_PopupMenu_Copy),
+            ('Remove this entry'  , self.on_PopupMenu_Remove)
         ])
         gcui.connect_signals(self)
         gcui.main_window.connect('destroy', self.exit)
@@ -377,6 +376,7 @@ class GameConqueror():
         ###########################
         # init others (backend, flag...)
         self._maps: list = None
+        self._bits: int  = misc.get_pointer_width()
         self._cnt = 0 # found count
         self._pid = 0 # target pid
         self._bg = connect
@@ -386,6 +386,7 @@ class GameConqueror():
         self.exiting_flag = False # currently for data_worker only, other 'threads' may also use this flag
         self.is_first_scan = True
 
+        self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
         self._watch_id = GLib.timeout_add(DATA_WORKER_INTERVAL, self.data_worker)
         self.command_lock = threading.RLock()
 
@@ -605,29 +606,53 @@ class GameConqueror():
     def cheatlist_edit_cancel(self, a):
         self.cheatlist_editing = False
 
-    def scanresult_delete_selected_matches(self, menuitem, data=None):
-        (model, pathlist) = self._ui.scanRes_tree.get_selection().get_selected_rows()
-        match_id_list = ','.join(str(model.get_value(model.get_iter(path), 6)) for path in pathlist)
-        self.command_lock.acquire()
-        self.command_send(f'delete {match_id_list}')
-        self.update_scan_result()
-        self.command_lock.release()
+    # # # # #
+    # Popup menu item handlers
+    # #
+    def on_PopupMenu_Add(self, mitem, ltree):
+        lstor, plist = ltree.get_selection().get_selected_rows()
+        for path in reversed(plist):
+            addr, value, typestr = lstor.get(lstor.get_iter(path), 0,1,2)
+            self.add_to_cheat_list(addr, value, typestr)
+        return True
 
-    def scanresult_popup_cb(self, menuitem, data=None):
-        (model, pathlist) = self._ui.scanRes_tree.get_selection().get_selected_rows()
-        if data == 'add_to_cheat_list':
-            for path in reversed(pathlist):
-                (addr, value, typestr) = model.get(model.get_iter(path), 0, 1, 2)
-                self.add_to_cheat_list(addr, value, typestr)
-            return True
-        addr = model.get_value(model.get_iter(pathlist[0]), 0)
-        if data == 'browse_this_address':
-            self.browse_memory(addr)
-            return True
-        elif data == 'scan_for_this_address':
-            self.scan_for_addr(addr)
-            return True
-        return False
+    def on_PopupMenu_Copy(self, mitem, ltree):
+        lstor, plist = ltree.get_selection().get_selected_rows()
+        hexx = '%x'  % lstor.get_value(lstor.get_iter(plist[0]), 0)
+        self.clipboard.set_text(hexx, len(hexx))
+        return True
+
+    def on_PopupMenu_Scan(self, mitem, ltree):
+        lstor, plist = ltree.get_selection().get_selected_rows()
+        hexx = '%#x' % lstor.get_value(lstor.get_iter(plist[0]), 0)
+        if self._bits == -1:
+            self._ui.show_error('Unknown architecture, you may report to developers')
+            return False
+        self.reset_scan()
+        self.scan_data_type = f'int{self._bits}'
+        self._ui.scanVal_input.set_text(hexx)
+        GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
+        self.do_scan()
+        return True
+
+    def on_PopupMenu_Browse(self, mitem, ltree):
+        lstor, plist = ltree.get_selection().get_selected_rows()
+        "***"; addr  = lstor.get_value(lstor.get_iter(plist[0]), 0)
+        self.browse_memory(addr)
+        return True
+
+    def on_PopupMenu_Remove(self, mitem, ltree):
+        lstor, plist = ltree.get_selection().get_selected_rows()
+        is_scanres   = ltree == self._ui.scanRes_tree
+        list_id = []
+        for path in plist:
+            itr = lstor.get_iter(path)
+            if is_scanres:
+                list_id.append(str(lstor.get_value(itr, 6)))
+            lstor.remove(itr)
+        if is_scanres:
+            self.del_selected_matches(list_id)
+        return True
 
     def on_KeyPress_handler(self, target, event, data=None):
         key  = Gdk.keyval_name(event.keyval)
@@ -653,23 +678,6 @@ class GameConqueror():
                     self.add_to_cheat_list(addr, value, typestr)
             elif target is scanval_in:
                 self.do_scan()
-
-    def cheatlist_popup_cb(self, menuitem, data=None):
-        self.cheatlist_editing = False
-        (model, pathlist) = self._ui.cheatList_tree.get_selection().get_selected_rows()
-        if data == 'remove_entry':
-            for path in reversed(pathlist):
-                self._ui.cheatList_list.remove(model.get_iter(path)) 
-            return True
-        addr = model.get_value(model.get_iter(pathlist[0]), 2)
-        if data == 'browse_this_address':
-            self.browse_memory(addr)
-            return True
-        elif data == 'copy_address':
-            addr = '%x' %(addr,)
-            self.clipboard.set_text(addr, len(addr))
-            return True
-        return False
 
     def cheatlist_toggle_lock(self, row):
         if self._ui.cheatList_list[row][5]: # valid
@@ -771,16 +779,13 @@ class GameConqueror():
             obj['cheat_list'].append(list(row))
         json.dump(obj, file)
 
-    def scan_for_addr(self, addr):
-        bits = misc.get_pointer_width()
-        if bits is None:
-            self._ui.show_error('Unknown architecture, you may report to developers')
-            return
-        self.reset_scan()
-        self.scan_data_type = 'int%d' % bits
-        self._ui.scanVal_input.set_text('%#x' % addr)
-        GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
-        self.do_scan()
+    def del_selected_matches(self, sel_ids: list[str] ):
+        idx = 0
+        self.command_lock.acquire()
+        while idx < len(sel_ids):
+            self.command_send('delete '+','.join(sel_ids[ idx : idx+32 ]))
+            idx += 32
+        self.command_lock.release()
 
     def browse_memory(self, addr=None):
         # select a region contains addr
