@@ -340,9 +340,7 @@ class GameConqueror():
         gcui.cheatList_tree.connect('key-press-event', self.on_KeyPress_handler)
         gcui.scanRes_tree  .connect('key-press-event', self.on_KeyPress_handler)
         # get list of things to be disabled during scan
-        self.disablelist = [gcui.reset_button, gcui.cheatList_tree, gcui.get_object('processGrid'),
-                            gcui.scanVal_input, gcui.scanRes_tree, gcui.get_object('buttonGrid'),
-                            gcui.mmedit_window]
+        gcui.get_object('SelectProcess_Button').connect('clicked', self.do_ListProcess_Select)
         # init AddCheatDialog
         self.addcheat_address_input = gcui.get_object('Address_Input')
         self.addcheat_address_input.override_font(Pango.FontDescription("Monospace"))
@@ -359,16 +357,16 @@ class GameConqueror():
 
         # init popup menu for scanresult
         self.scanresult_popup = GcUI.new_popup_menu(gcui.scanRes_tree, [
-            ('Add to cheat list'    , self.on_PopupMenu_Add),
+            ('Add to cheat list'    , self.do_CheatList_Add),
             ('Browse this address'  , self.on_PopupMenu_Browse),
             ('Scan for this address', self.on_PopupMenu_Scan),
-            ('Remove this match'    , self.on_PopupMenu_Remove)
+            ('Remove this match'    , self.do_ListItems_Remove)
         ])
         # init popup menu for cheatlist
         self.cheatlist_popup = GcUI.new_popup_menu(gcui.cheatList_tree, [
             ('Browse this address', self.on_PopupMenu_Browse),
             ('Copy address'       , self.on_PopupMenu_Copy),
-            ('Remove this entry'  , self.on_PopupMenu_Remove)
+            ('Remove this entry'  , self.do_ListItems_Remove)
         ])
         gcui.connect_signals(self)
         gcui.main_window.connect('destroy', self.exit)
@@ -520,46 +518,21 @@ class GameConqueror():
         return True
 
     # Process list
-
-    def ProcessFilter_Input_changed_cb(self, widget, data=None):
-        self.ProcessList_Refilter_Generic()
-
-    def UserFilter_Input_changed_cb(self, widget, data=None):
-        self.ProcessList_Refilter_Generic()
-
-    def ProcessList_Refilter_Generic(self):
-        self.processlist_filter.refilter()
-        self._ui.procList_tree.set_cursor(0)
-
-    def ProcessList_TreeView_row_activated_cb(self, treeview, path, view_column, data=None):
-        (model, iter) = self._ui.procList_tree.get_selection().get_selected()
-        if iter is not None:
-            (pid, process) = model.get(iter, 0, 2)
-            self.select_process(pid, process)
-            self._ui.procList_dialog.response(Gtk.ResponseType.CANCEL)
-            return True
-        return False
-
-    def SelectProcess_Button_clicked_cb(self, button, data=None):
-        self._ui.procList_list.clear()
-        for plist in misc.get_process_list():
-            self._ui.procList_list.append(plist)
+    def do_ListProcess_Select(self, trigger=None):
         self._ui.procList_dialog.show()
-        while True:
-            res = self._ui.procList_dialog.run()
-            if res == Gtk.ResponseType.OK: # -5
-                (model, iter) = self._ui.procList_tree.get_selection().get_selected()
-                if iter is None:
-                    self._ui.show_error('Please select a process')
-                    continue
-                else:
-                    (pid, process) = model.get(iter, 0, 2)
-                    self.select_process(pid, process)
-                    break
-            else: # for None and Cancel
-                break
+        if trigger is not None:
+            self._ui.procList_list.clear()
+            for plist in misc.get_process_list():
+                self._ui.procList_list.append(plist)
+        if self._ui.procList_dialog.run() == Gtk.ResponseType.OK: # -5
+            lstor, iter = self._ui.procList_tree.get_selection().get_selected()
+            if iter is None:
+                self._ui.show_error('Please select a process')
+                self.do_ListProcess_Select()
+            else:
+                pid, proc = lstor.get(iter, 0, 2)
+                self.select_process(pid, proc)
         self._ui.procList_dialog.hide()
-        return True
 
     #######################
     # customed callbacks
@@ -609,12 +582,11 @@ class GameConqueror():
     # # # # #
     # Popup menu item handlers
     # #
-    def on_PopupMenu_Add(self, mitem, ltree):
-        lstor, plist = ltree.get_selection().get_selected_rows()
-        for path in reversed(plist):
-            addr, value, typestr = lstor.get(lstor.get_iter(path), 0,1,2)
-            self.add_to_cheat_list(addr, value, typestr)
-        return True
+    def do_CheatList_Add(self, trigger=None, tree=None):
+        lstor, plist = tree.get_selection().get_selected_rows()
+        for path in plist:
+            addr, val, typestr = lstor.get(lstor.get_iter(path), 0,1,2)
+            self._ui.cheatList_list.append([False, " * ", addr, typestr, str(val), True])
 
     def on_PopupMenu_Copy(self, mitem, ltree):
         lstor, plist = ltree.get_selection().get_selected_rows()
@@ -641,9 +613,9 @@ class GameConqueror():
         self.browse_memory(addr)
         return True
 
-    def on_PopupMenu_Remove(self, mitem, ltree):
-        lstor, plist = ltree.get_selection().get_selected_rows()
-        is_scanres   = ltree == self._ui.scanRes_tree
+    def do_ListItems_Remove(self, trigger=None, tree=None):
+        lstor, plist = tree.get_selection().get_selected_rows()
+        is_scanres   = tree is self._ui.scanRes_tree
         list_id = []
         for path in plist:
             itr = lstor.get_iter(path)
@@ -652,7 +624,6 @@ class GameConqueror():
             lstor.remove(itr)
         if is_scanres:
             self.del_selected_matches(list_id)
-        return True
 
     def on_KeyPress_handler(self, target, event, data=None):
         key  = Gdk.keyval_name(event.keyval)
@@ -662,20 +633,15 @@ class GameConqueror():
         scanres_tv = self._ui.scanRes_tree
         scanval_in = self._ui.scanVal_input
 
-        if key == 'Delete' or (key == 'd' and ctrl):
+        if key == 'Delete' or (key in {'d','-'} and ctrl):
 
-            if target is cheats_tv:
-                GcUI.treeview_remove_entries(cheats_tv)
-            elif target is scanres_tv:
-                self.scanresult_delete_selected_matches(None)
+            if target is scanres_tv or target is cheats_tv:
+                self.do_ListItems_Remove(tree=target)
 
-        elif key == 'Return' or (key == 'm' and ctrl):
+        elif key == 'Return' or (key in {'m','+'} and ctrl):
 
             if target is scanres_tv:
-                model, plist = scanres_tv.get_selection().get_selected_rows()
-                for path in reversed(plist):
-                    addr, value, typestr = model.get(model.get_iter(path), 0, 1, 2)
-                    self.add_to_cheat_list(addr, value, typestr)
+                self.do_CheatList_Add(tree=target)
             elif target is scanval_in:
                 self.do_scan()
 

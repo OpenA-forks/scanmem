@@ -444,8 +444,6 @@ along with GameConqueror.  If not, see <http://www.gnu.org/licenses/>.
                             <property name="receives_default">True</property>
                             <property name="tooltip_text" translatable="yes">Select a process (CTRL+F)</property>
                             <property name="image">system_image</property>
-                            <signal name="clicked" handler="SelectProcess_Button_clicked_cb" swapped="no"/>
-                            <accelerator key="f" signal="activate" modifiers="GDK_CONTROL_MASK"/>
                           </object>
                           <packing>
                             <property name="left_attach">0</property>
@@ -1113,11 +1111,9 @@ Special thanks: Igor Gnatenko, Mattias Muenster, Zhang Zhe</property>
               <object class="GtkTreeView" id="ProcessList_TreeView">
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
-                <signal name="row-activated" handler="ProcessList_TreeView_row_activated_cb" swapped="no"/>
                 <child internal-child="selection">
                   <object class="GtkTreeSelection" id="ProcessList_TreeSelection"/>
                 </child>
-                <accelerator key="semicolon" signal="grab-focus" modifiers="GDK_CONTROL_MASK"/>
               </object>
             </child>
           </object>
