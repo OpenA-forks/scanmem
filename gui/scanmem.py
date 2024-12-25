@@ -41,19 +41,23 @@ class Scanmem():
     }
 
     def __init__(self):
-        self._itr = None
-        self._lib = ctypes.CDLL(LIB_PATH)
-        self._init_lib_functions()
+        self._itr = self._th = None
+        self._lib = self.load_library()
         self._lib.sm_set_backend()
         self._lib.sm_init()
         self.exec_command('reset')
-        self.version = self._lib.sm_get_version().decode()
 
-    def _init_lib_functions(self):
+    def get_version(self):
+        return '{"version":"%s"}'% self._lib.sm_get_version().decode()
+
+    @staticmethod
+    def load_library():
+        lib = ctypes.CDLL(LIB_PATH)
         for k,v in Scanmem.LIBRARY_FUNCS.items():
-            f = getattr(self._lib, k)
+            f = getattr(lib, k)
             f.restype = v[0]
             f.argtypes = v[1:]
+        return lib
 
     def dump_command(self, cmd: str, raw_out=False):
         """
