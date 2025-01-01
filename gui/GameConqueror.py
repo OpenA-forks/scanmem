@@ -34,7 +34,7 @@ HOMEPAGE    = os.environ['SCANMEM_HOMEPAGE']
 
 from hexview import HexView
 
-ADDR_T = GObject.TYPE_UINT64
+MATCH_CNT = 32
 PROGRESS_INTERVAL = 100 # for scan progress updates
 DATA_WORKER_INTERVAL = 500 # for read(update)/write(lock)
 HEXEDIT_SPAN = 1024 # hexview half-height
@@ -70,8 +70,8 @@ class GcUI(Gtk.Builder):
         # set version
         self.about_dialog.set_version(VERSION)
         self.about_dialog.set_website(HOMEPAGE)
-        # init ScanResult @ columns:      addr  , value, type, valid, offset, region, match_id
-        self.scanRes_list = Gtk.ListStore(ADDR_T, str  , str , bool , ADDR_T, str   , int)
+        # init ScanResult @ columns:      addr, value, type, valid, offset, region, match_id
+        self.scanRes_list = Gtk.ListStore(str , str  , str , bool , str   , str   , int)
         self.scanRes_tree.set_model(self.scanRes_list)
         # init ProcessList @ columns:      pid, usr, process
         self.procList_list = Gtk.ListStore(int, str, str)
@@ -79,12 +79,12 @@ class GcUI(Gtk.Builder):
         self.procList_filter.set_visible_func(self.on_ProcessFilter_handler)
         self.procList_tree.set_model(Gtk.TreeModelSort(model=self.procList_filter))
         self.procList_tree.set_search_column(2)
-        # init CheatsList @ columns:        lock, desc, addr  , type, value, valid
-        self.cheatList_list = Gtk.ListStore(bool, str , ADDR_T, str , str  , bool)
+        # init CheatsList @ columns:        lock, desc, addr, type, value, valid
+        self.cheatList_list = Gtk.ListStore(bool, str , str , str , str  , bool)
         self.cheatList_tree.set_model(self.cheatList_list)
         # init scanresult treeview columns
         # we may need a cell data func here
-        GcUI.treeview_append_column(self.scanRes_tree, 'Address', 0, data_func=GcUI.format16,
+        GcUI.treeview_append_column(self.scanRes_tree, 'Address', 0, #data_func=GcUI.format16,
                                     attributes=[('text', 0)],
                                     properties=[('family', 'monospace')])
 
@@ -92,7 +92,7 @@ class GcUI(Gtk.Builder):
                                     attributes=[('text', 0)],
                                     properties=[('family', 'monospace')])
 
-        GcUI.treeview_append_column(self.scanRes_tree, 'Offset', 4, data_func=GcUI.format16,
+        GcUI.treeview_append_column(self.scanRes_tree, 'Offset', 4, #data_func=GcUI.format16,
                                     attributes=[('text', 4)],
                                     properties=[('family', 'monospace')])
 
@@ -195,7 +195,7 @@ class GcUI(Gtk.Builder):
                                properties: list=None,
                                signals   : list=None):
         # create renderer of given type
-        column = Gtk.TreeViewColumn(title)
+        column = Gtk.TreeViewColumn(misc.ltr(title))
         column.set_resizable(resizable)
         column.pack_start(render, True)
         treeview.append_column(column)
@@ -314,7 +314,7 @@ class GameConqueror():
                                                   ('editing-started' , self.cheatlist_edit_start),
                                                   ('editing-canceled', self.cheatlist_edit_cancel)])
         # Address
-        GcUI.treeview_append_column(gcui.cheatList_tree, 'Address', 2, data_func=GcUI.format16,
+        GcUI.treeview_append_column(gcui.cheatList_tree, 'Address', 2, #data_func=GcUI.format16,
                                     attributes = [('text',2)],
                                     properties = [('family', 'monospace')])
         # Type
@@ -946,11 +946,7 @@ class GameConqueror():
             self._ui.scanRes_list.clear()
             return
 
-        addr = GObject.Value(GObject.TYPE_UINT64)
-        off  = GObject.Value(GObject.TYPE_UINT64)
-        cnt  = chr(32)
-
-        matches = self.command_send(f'list L{cnt}', 4096)
+        matches = self.command_send(f'list L{MATCH_CNT}', 4096)
 
         self._ui.scanRes_tree.set_model(None)
         # temporarily disable model for scanresult_liststore for the sake of performance
@@ -968,14 +964,12 @@ class GameConqueror():
                 if t == 'unknown':
                     continue
                 # `insert_with_valuesv` has the same function of `append`, but it's 7x faster
-                # PY3 has problems with int's, so we need a forced guint64 conversion
-                # See: https://bugzilla.gnome.org/show_bug.cgi?id=769532
                 # Still 5x faster even with the extra baggage
-                addr.set_uint64(int(m['addr'], 16))
-                off .set_uint64(int(m['off'] , 16))
+                addr = m['addr']
+                off  = m['off']
                 self._ui.scanRes_list.insert_with_valuesv(-1, [0, 1, 2, 3, 4, 5, 6], [addr, val, t, True, off, rt, mid])
                 # self._ui.scanRes_list.append([addr, val, t, True, off, rt, mid])
-            matches = self.command_send(f'next L{cnt}', 4096)
+            matches = self.command_send(f'next L{MATCH_CNT}', 4096)
         self._ui.scanRes_tree.set_model(self._ui.scanRes_list)
 
     # return range(r1, r2) where all rows between r1 and r2 (EXCLUSIVE) are visible
@@ -1030,32 +1024,27 @@ class GameConqueror():
                         row[3] = False
             self._cnt = new_cnt
 
-    def read_value(self, addr, in_type, val, out_type):
+    def read_value(self, addr:str, in_type:str, val:int|str, out_type:str):
         size = misc.get_type_size(in_type, val)
         buf  = self.read_memory(addr, size)
         return misc.bytes2value(out_type, buf)
     
     # addr could be int or str
-    def read_memory(self, addr, length):
-        if not isinstance(addr,str):
-            addr = '%x'%(addr,)
-        cap = length * 4 + 16
+    def read_memory(self, addr:str, nb:int):
+        cap = nb * 4 + 16
 
         self.command_lock.acquire()
-        data = self.command_send(f'dump {addr} {length}', cap if cap > 1024 else 1024)[0]
+        data = self.command_send(f'dump {addr} {nb}', cap if cap > 1024 else 1024)[0]
         self.command_lock.release()
 
         # TODO raise Exception here isn't good
-        if len(data['raw']) != length:
+        if len(data['raw']) != nb:
             # self._ui.show_error('Cannot access target memory')
             return None
         return data['raw']
 
     # addr could be int or str
-    def write_value(self, addr, typestr, value):
-        if not isinstance(addr,str):
-            addr = '%x'%(addr,)
-
+    def write_value(self, addr:str, typestr:str, value:int|str):
         self.command_lock.acquire()
         self.command_send(f'write {typestr} {addr} {value}')
         self.command_lock.release()

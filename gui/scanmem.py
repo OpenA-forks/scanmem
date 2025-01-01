@@ -151,7 +151,7 @@ class Scanmem():
             idx = cmd.find('L')
             if not cmd.startswith('next'):
                 self.dump_command(cmd if idx == -1 else cmd[:idx-1])
-            res = self.extract_rows(5 if idx == -1 else ord(cmd[idx+1:]))
+            res = self.extract_rows(5 if idx == -1 else int(cmd[idx+1:]))
         elif cmd.startswith('dump'):
             res = self.dump_command(cmd, True)
         elif cmd.startswith('info'):
