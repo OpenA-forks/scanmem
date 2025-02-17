@@ -97,6 +97,7 @@ FILE *get_pager(FILE *fallback_output)
     bool pgcmdfail = false;
     FILE *retfd = NULL;
     char *const emptyvec[1] = { NULL };
+    char nbuf[1];
 
     assert(fallback_output != NULL && fileno(fallback_output) != -1);
 
@@ -116,7 +117,8 @@ FILE *get_pager(FILE *fallback_output)
      * we write here to ensure we will always
      * have something to read() into pgcmdfail.
      */
-    write(pgpipe[1], "", 1);
+    if (-1 == write(pgpipe[1], "", 1))
+        /* errors */;
 
     /* XXX: is $PATH modified prior? */
 retry:
@@ -133,10 +135,8 @@ retry:
          * the parent know that we are indeed returning
          * the return value of the failed execvp().
          */
-        char nullbuf;
-        /* read() to empty pipe */
-        read(pgpipe[0], &nullbuf, 1);
-        write(pgpipe[1], "1", 2);
+        if (-1 == read (pgpipe[0], nbuf, 1)); // read() to empty pipe
+        if (-1 == write(pgpipe[1], "1" , 2)); // ...
         exit(errno);
         /* NOTREACHED */
     default:
