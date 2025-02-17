@@ -1,0 +1,56 @@
+/* include/config.h.      Generated from config.h.in by configure.
+ * include/config.h.in.   Generated from configure.ac by autoheader.
+ */
+#ifndef _CONFIG_H_
+#define _CONFIG_H_
+
+/* project version */
+#define SCANMEM_VERSION "@PROJECT_VERSION@~@PROJECT_BUILDVER@"
+#define SCANMEM_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define SCANMEM_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define SCANMEM_HOMEPAGE "@PROJECT_HOMEPAGE_URL@"
+
+/* Defined 1 if you system have the listed header files. */
+#cmakedefine HAVE_SYS_TYPES_H 1 // <sys/types.h>
+#cmakedefine HAVE_SYS_IOCTL_H 1 // <sys/ioctl.h>
+#cmakedefine HAVE_SYS_SOCK_H  1 // <sys/socket.h>
+#cmakedefine HAVE_SYS_STAT_H  1 // <sys/stat.h>
+#cmakedefine HAVE_SYS_TIME_H  1 // <sys/time.h>
+
+#cmakedefine HAVE_INTTYPES_H  1 // <inttypes.h>
+#cmakedefine HAVE_PTHREAD_H   1 // <pthread.h>
+#cmakedefine HAVE_ALLOCA_H    1 // <alloca.h>
+#cmakedefine HAVE_LIMITS_H    1 // <limits.h>
+#cmakedefine HAVE_SIGNAL_H    1 // <signal.h>
+#cmakedefine HAVE_FCNTL_H     1 // <fcntl.h>
+
+/* Defined as 1 if the following functions are supported */
+#cmakedefine HAVE_STRTOD   1
+#cmakedefine HAVE_PROCMEM  1
+#cmakedefine HAVE_GETLINE  1
+#cmakedefine HAVE_FGETLN   1
+#cmakedefine HAVE_STRDUPA  1
+#cmakedefine HAVE_STRNDUPA 1
+#cmakedefine HAVE_LIBREADLINE 1
+
+/* Defined as 1 if the following types are supported */
+#cmakedefine SIZE_INTPTR_T @SIZE_INTPTR_T@
+
+/* Define known-width integer types. */
+#ifdef HAVE_SYS_TYPES_H
+# include <sys/types.h>
+#endif
+#ifdef HAVE_INTTYPES_H
+# include <inttypes.h>
+#else
+typedef unsigned char     uint8_t;  typedef char     int8_t;
+typedef unsigned short    uint16_t; typedef short    int16_t;
+typedef unsigned int      uint32_t; typedef int      int32_t;
+typedef unsigned long int uint64_t; typedef long int int64_t;
+#endif
+
+// legacy
+#define PACKAGE_VERSION SCANMEM_VERSION
+#define PACKAGE_BUGREPORT SCANMEM_HOMEPAGE
+
+#endif //_CONFIG_H_

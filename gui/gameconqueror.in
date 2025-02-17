@@ -1,17 +1,16 @@
 #!/bin/sh
 
 # constants should be defined by autotools
-DATADIR="@PKGDATADIR@"
-LOCALEDIR="@LOCALEDIR@"
-HOMEPAGE="@PACKAGE_BUGREPORT@"
-GETTEXT="@GETTEXT_PACKAGE@"
-VERSION="@VERSION@"
-LIBDIR="@LIBDIR@"
+DATADIR="@DISTRIB_DATADIR@"
+HOMEURL="@PROJECT_HOMEPAGE_URL@"
+APPNAME="@DISTRIB_APPNAME@"
+VERSION="@PROJECT_VERSION@~@PROJECT_BUILDVER@"
+LIBPATH="@DISTRIB_LIBPATH@"
 
 SOCKET="/tmp/scanmem-$VERSION-socket"
 PKEXEC=$(command -v "pkexec")
 PROCID=""
-CONFIG="$HOME/.config/scanmem/GC.cfg"
+CONFIG="$HOME/.config/$APPNAME/settings.cfg"
 DEBUG=
 NOT_PERMITED=
 RUNNING=
@@ -22,7 +21,7 @@ for i in "$@"; do
       echo ""
       echo "  A GUI for scanmem, a game hacking tool."
       echo ""
-      echo "homepage:\n  $HOMEPAGE"
+      echo "homepage:\n  $HOMEURL"
       echo ""
       echo "config keys:"
       echo "  search_scope=%d      sets the search scope (def: 1)"
@@ -42,11 +41,11 @@ for i in "$@"; do
       exit
       ;;
     --version | -v)
-      echo "GameConqueror-$VERSION"
+      echo "$APPNAME-$VERSION"
       exit
       ;;
-    --cfg=*) CONFIG="${i#*=}";;
-    --pid=*) PROCID="${i#*=}";;
+    --cfg=*) CONFIG=$(expr substr "$i" 7 1024) ;;
+    --pid=*) PROCID=$(expr substr "$i" 7 16) ;;
     --np   ) NOT_PERMITED=1  ;;
     --dbg  ) DEBUG=1
       ;;
@@ -62,7 +61,7 @@ pk_exec() {
 }
 
 py_scanmem() {
-  pk_exec env SCANMEM_LIBDIR="$LIBDIR/libscanmem.so.1"\
+  pk_exec env SCANMEM_LIBDIR="$LIBPATH"\
               SCANMEM_SOCKET="$SOCKET"\
               SCANMEM_DEBUG="$DEBUG"\
   python3 "$DATADIR/scanmem.py"
@@ -70,11 +69,11 @@ py_scanmem() {
 
 py_gameconqueror()
 {
-  export SCANMEM_UIGTK="$DATADIR/GameConqueror.ui"
+  export SCANMEM_UIGTK="$DATADIR/ui/@UI_GTK_XML@"
   export SCANMEM_VERSION="$VERSION"
-  export SCANMEM_GETTEXT="$GETTEXT"
-  export SCANMEM_LOCALEDIR="$LOCALEDIR"
-  export SCANMEM_HOMEPAGE="$HOMEPAGE"
+  export SCANMEM_GETTEXT="$APPNAME"
+  export SCANMEM_LOCALEDIR="$DATADIR/locale"
+  export SCANMEM_HOMEPAGE="$HOMEURL"
   export SCANMEM_SOCKET="$SOCKET"
   export SCANMEM_DEBUG="$DEBUG"
 
