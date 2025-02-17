@@ -167,7 +167,7 @@ endif()
 #
 # Optional: -DBUILD_CLI=1
 #
-option(BUILD_CLI "Build scanmem command line tool" OFF)
+option(BUILD_CLI "Build scanmem command line tool" ON)
 if(BUILD_CLI)
 	add_executable(scanmem-cli ${PROJECT_CLI_SRC})
 
