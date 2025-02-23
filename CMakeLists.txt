@@ -11,11 +11,13 @@ set(PROJECT_DEFS    -D_GNU_SOURCE)
 set(PROJECT_WERROR  -Wall)
 set(PROJECT_INCLUDE ${PROJECT_BINARY_DIR} ${PROJECT_SOURCE_DIR})
 set(PROJECT_BUILDVER "dev")
-set(PROJECT_CLI_SRC  "menu.h" "menu.c" "main.c")
+
+set(PROG_CLI_SRC  "menu.h" "menu.c" "main.c")
+set(PROG_CLI_LIBS "")
 
 set(DISTRIB_APPNAME "GameConqueror")
 set(DISTRIB_BIN "")
-set(DISTRIB_LIB "")
+set(DISTRIB_LIB "libscanmem.so")
 set(DISTRIB_MAN "")
 
 set(PROJECT_HEADERS
@@ -95,6 +97,12 @@ if (NOT HAVE_GETLINE)
 	endif()
 endif()
 
+set(PROGRAM_PERMISSIONS_DEFAULT
+# default exec file permissions
+	OWNER_READ OWNER_EXECUTE OWNER_WRITE
+	GROUP_READ GROUP_EXECUTE
+	WORLD_READ WORLD_EXECUTE )
+
 find_package(Git QUIET)
 if(GIT_FOUND)
 	execute_process(
@@ -108,11 +116,11 @@ if(GIT_FOUND)
 endif()
 
 #
-# Optional: -DBUILD_CFLAGS="-O2"
+# Optional: -DSET_CFLAGS="-O2"
 #
-option(BUILD_CFLAGS "Set compiler flags manually" OFF)
-if (BUILD_CFLAGS)
-	set(PROJECT_CFLAGS ${BUILD_CFLAGS})
+option(SET_CFLAGS "Set compiler flags manually" OFF)
+if (SET_CFLAGS)
+	set(PROJECT_CFLAGS ${SET_CFLAGS})
 endif()
 
 #
@@ -135,22 +143,23 @@ if(USE_IREADLINE)
 endif()
 
 option(BUILD_RELEASE "Build without debug logs and turn warnings to errors" OFF)
-if(BUILD_RELEASE)
-	# lots of warnings and all warnings as errors
-	set(PROJECT_WERROR -Werror)
+if(NOT BUILD_RELEASE)
+	# check code compliance with standard
+	list(APPEND PROJECT_WERROR -Wpedantic)
+else()
+	# check unused code blocks
+	list(APPEND PROJECT_WERROR -Wextra)
 	set(PROJECT_BUILDVER "rel")
 endif()
 
 #
-# Optional: -DBUILD_SHARED=1
+# Optional: -DBUILD_CLI_SHARED=1
 #
-option(BUILD_SHARED "Build scanmem as shared library" OFF)
-if(NOT BUILD_SHARED)
-	add_library(scanmem STATIC ${PROJECT_SOURCES} ${PROJECT_HEADERS})
-	list(APPEND DISTRIB_LIB "libscanmem.a")
+option(BUILD_CLI_SHARED "Build scanmem as shared library" OFF)
+if(NOT BUILD_CLI_SHARED)
+	list(APPEND PROG_CLI_LIBS scanmem-${PROJECT_VERSION})
 else()
-	add_library(scanmem SHARED ${PROJECT_SOURCES} ${PROJECT_HEADERS})
-	list(APPEND DISTRIB_LIB "libscanmem.so")
+	list(APPEND PROG_CLI_LIBS scanmem)
 endif()
 
 #
@@ -168,15 +177,13 @@ endif()
 # Optional: -DBUILD_CLI=1
 #
 option(BUILD_CLI "Build scanmem command line tool" ON)
-if(BUILD_CLI)
-	add_executable(scanmem-cli ${PROJECT_CLI_SRC})
-
+if(BUILD_CLI OR BUILD_CLI_SHARED)
 	if(NOT USE_IREADLINE)
 		# Check for readline or bypass checking for the libraries.
 		check_include_file("readline/readline.h" HAVE_RL_READLINE_H)
 		check_include_file("readline/history.h" HAVE_RL_HISTORY_H)
 		if(HAVE_RL_READLINE_H AND HAVE_RL_HISTORY_H)
-			target_link_libraries(scanmem-cli PRIVATE readline)
+			list(APPEND PROG_CLI_LIBS readline)
 			set(HAVE_LIBREADLINE ON CACHE FILEPATH "Build with libreadline")
 		else()
 			message(FATAL_ERROR
@@ -199,16 +206,25 @@ message("\nConfigurations:\n\
 .: Build defines list = ${PROJECT_DEFS}\n\
 ")
 
+add_library               (scanmem SHARED ${PROJECT_SOURCES} ${PROJECT_HEADERS})
 target_include_directories(scanmem SYSTEM AFTER PUBLIC ${PROJECT_INCLUDE})
 target_compile_options    (scanmem PRIVATE ${PROJECT_CFLAGS} ${PROJECT_WERROR})
 target_compile_definitions(scanmem PRIVATE ${PROJECT_DEFS})
 
-if(BUILD_CLI)
+if (BUILD_CLI AND NOT BUILD_CLI_SHARED)
+	add_library               (scanmem-${PROJECT_VERSION} ${PROJECT_SOURCES} ${PROJECT_HEADERS})
+	target_include_directories(scanmem-${PROJECT_VERSION} SYSTEM AFTER PUBLIC ${PROJECT_INCLUDE})
+	target_compile_options    (scanmem-${PROJECT_VERSION} PRIVATE ${PROJECT_CFLAGS} ${PROJECT_WERROR})
+	target_compile_definitions(scanmem-${PROJECT_VERSION} PRIVATE ${PROJECT_DEFS} -DJSON_OUTPUT)
+endif()
+
+if (BUILD_CLI OR BUILD_CLI_SHARED)
+	add_executable        (scanmem-cli ${PROG_CLI_SRC})
 	set_target_properties (scanmem-cli PROPERTIES OUTPUT_NAME scanmem)
 	target_compile_options(scanmem-cli PRIVATE ${PROJECT_CFLAGS} ${PROJECT_WERROR})
-	target_link_libraries (scanmem-cli PRIVATE scanmem)
+	target_link_libraries (scanmem-cli PRIVATE ${PROG_CLI_LIBS})
 	# install program
-	install(TARGETS scanmem-cli DESTINATION ${CMAKE_INSTALL_BINDIR})
+	install(TARGETS scanmem-cli DESTINATION ${CMAKE_INSTALL_BINDIR} PERMISSIONS ${PROGRAM_PERMISSIONS_DEFAULT})
 endif()
 # install library
 install(TARGETS scanmem DESTINATION ${CMAKE_INSTALL_LIBDIR})
