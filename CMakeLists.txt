@@ -12,7 +12,7 @@ set(PROJECT_WERROR  -Wall)
 set(PROJECT_INCLUDE ${PROJECT_BINARY_DIR} ${PROJECT_SOURCE_DIR})
 set(PROJECT_BUILDVER "dev")
 
-set(PROG_CLI_SRC  "menu.h" "menu.c" "main.c")
+set(PROG_CLI_SRC  "menu.h" "menu.c" "src/main.c")
 set(PROG_CLI_LIBS "")
 
 set(DISTRIB_APPNAME "GameConqueror")
@@ -75,6 +75,7 @@ check_include_file("signal.h"   HAVE_SIGNAL_H)
 check_include_file("alloca.h"   HAVE_ALLOCA_H)
 check_include_file("limits.h"   HAVE_LIMITS_H)
 check_include_file("pthread.h"  HAVE_PTHREAD_H)
+check_include_file("libintl.h"  HAVE_INTLTOOL_H)
 check_include_file("inttypes.h" HAVE_INTTYPES_H)
 # check types size
 check_type_size("int64_t"      SIZE_INT64_T)
@@ -126,7 +127,7 @@ if(GIT_FOUND)
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 		ERROR_QUIET
 	)
-	set(PROJECT_HOMEPAGE_URL ${REPO_URL})
+	string(REPLACE ".git" "" PROJECT_HOMEPAGE_URL ${REPO_URL})
 endif()
 
 #
