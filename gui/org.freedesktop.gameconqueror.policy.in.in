@@ -4,10 +4,10 @@
 "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
  <vendor>Scanmem</vendor>
- <vendor_url>https://github.com/scanmem/scanmem</vendor_url>
+ <vendor_url>@PROJECT_HOMEPAGE_URL@</vendor_url>
  <action id="org.freedesktop.gameconqueror.pkexec.run">
-    <_description>Run Game Conqueror</_description>
-    <_message>Authentication is required to run Game Conqueror</_message>
+    <description>Run Game Conqueror</description>
+    <message>Authentication is required to run Game Conqueror</message>
     <icon_name>GameConqueror</icon_name>
     <defaults>
      <allow_any>auth_admin_keep</allow_any>

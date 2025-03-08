@@ -97,6 +97,19 @@ if (NOT HAVE_GETLINE)
 	endif()
 endif()
 
+function(check_program_exist exe1 out1 hint1)
+	find_program(EXEC "${exe1}" NO_CACHE)
+	if (EXEC STREQUAL "EXEC-NOTFOUND")
+		message("\n** Could not find program `${exe1}` (${hint1})\n")
+	else()
+		message(STATUS "Program found - ${EXEC}")
+		set(${out1} "${EXEC}" PARENT_SCOPE)
+	endif()
+endfunction()
+
+# check programs
+check_program_exist("msgfmt" GETTEXT_MSGFMT_EXEC "a part of gettext utility, need for build lang files")
+
 set(PROGRAM_PERMISSIONS_DEFAULT
 # default exec file permissions
 	OWNER_READ OWNER_EXECUTE OWNER_WRITE
@@ -163,11 +176,20 @@ else()
 endif()
 
 #
+# Optional: -DWITH_LOCALES=1
+#
+option(WITH_LOCALES "Disable build locales" ON)
+if (WITH_LOCALES AND GETTEXT_MSGFMT_EXEC)
+	add_subdirectory(po)
+else()
+	set(WITH_LOCALES OFF)
+endif()
+
+#
 # Optional: -DWITH_GUI=1
 #
 option(WITH_GUI "Enable GameConquerror UI module" OFF)
 if (WITH_GUI)
-	#add_subdirectory(po)
 	add_subdirectory(gui)
 	list(APPEND DISTRIB_BIN "gameconqueror")
 	list(APPEND DISTRIB_MAN "gui/gameconqueror.1")
