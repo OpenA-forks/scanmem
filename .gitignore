@@ -16,10 +16,10 @@ Makefile
 Makefile.in
 aclocal.m4
 compile
-config.guess
-config.log
-config.status
-config.sub
+dist/
+config.*
+ar-lib
+INSTALL
 depcomp
 install-sh
 libtool

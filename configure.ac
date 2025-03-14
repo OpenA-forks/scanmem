@@ -1,11 +1,21 @@
 AC_INIT([scanmem],[0.18~dev],[https://github.com/scanmem/scanmem])
 AC_CONFIG_MACRO_DIR([m4])
-AM_INIT_AUTOMAKE([-Wall -Werror -Wno-extra-portability foreign])
+AM_INIT_AUTOMAKE([-Wall foreign])
 AC_CONFIG_SRCDIR([main.c])
 AC_CONFIG_HEADERS([config.h])
 AC_USE_SYSTEM_EXTENSIONS
 AC_HEADER_STDBOOL
 
+PACKAGE_VERSION_SHORT="${PACKAGE_VERSION%~*}"
+PACKAGE_VERSION_MAJOR="${PACKAGE_VERSION%.*}"
+
+pkg_b=$(expr length "${PACKAGE_VERSION_SHORT}~ ")
+pkg_m=$(expr length "${PACKAGE_VERSION_MAJOR}. ")
+
+PACKAGE_VERSION_MINOR=`expr substr "$PACKAGE_VERSION_SHORT" $pkg_m 8`
+PACKAGE_VERSION_BUILD=`expr substr "$PACKAGE_VERSION"       $pkg_b 8`
+
+AM_PROG_AR #fix the linker warnings
 LT_INIT
 
 IT_PROG_INTLTOOL
@@ -150,7 +160,7 @@ AC_DEFUN([AS_AC_EXPAND],
   fi
 
   full_var="$FROM_VAR"
-  dnl loop until it doesn't change anymore
+  dnl loop until it doesn\'t change anymore
   while true; do
     new_full_var="`eval echo $full_var`"
     if test "x$new_full_var" = "x$full_var"; then break; fi
@@ -171,19 +181,32 @@ AC_DEFUN([AS_AC_EXPAND],
 # GameConqueror configuration
 
 AC_ARG_ENABLE(gui, [AS_HELP_STRING([--enable-gui],
-                            [enable gameconqueror, the gui front-end of scanmem])])
+                            ["enable $GETTEXT_PACKAGE, the gui front-end of scanmem"])])
 AM_CONDITIONAL([ENABLE_GUI], [test "x$enable_gui" = "xyes"])
 AS_IF([test "x$enable_gui" = "xyes"], [
-  AS_AC_EXPAND(PKGDATADIR, $datadir/gameconqueror)
-  AS_AC_EXPAND(LOCALEDIR, $localedir)
-  AS_AC_EXPAND(LIBDIR, $libdir)
+  AS_AC_EXPAND(DISTRIB_DATADIR, "$datadir")
+  AS_AC_EXPAND(DISTRIB_APPNAME, "$GETTEXT_PACKAGE")
+  AS_AC_EXPAND(DISTRIB_LIBPATH, "$libdir/libscanmem.so")
 
-  AM_PATH_PYTHON([2.7])
+  AS_AC_EXPAND(PROJECT_HOMEPAGE_URL,  "$PACKAGE_BUGREPORT")
+  AS_AC_EXPAND(PROJECT_VERSION,       "$PACKAGE_VERSION_SHORT")
+  AS_AC_EXPAND(PROJECT_VERSION_MAJOR, "$PACKAGE_VERSION_MAJOR")
+  AS_AC_EXPAND(PROJECT_VERSION_MINOR, "$PACKAGE_VERSION_MINOR")
+  AS_AC_EXPAND(PROJECT_BUILDVER,      "$PACKAGE_VERSION_BUILD")
+
+  AS_AC_EXPAND(UI_GTK_XML,   "gtk.interface.gameconqueror.xml")
+  AS_AC_EXPAND(XGD_DESKTOP,  "org.scanmem.gameconqueror.desktop")
+  AS_AC_EXPAND(XML_METAINFO, "org.scanmem.gameconqueror.metainfo.xml")
+  AS_AC_EXPAND(POLICY_KIT,   "org.freedesktop.gameconqueror.policy")
+
+  AM_PATH_PYTHON([3.7])
   AC_CONFIG_FILES([
     gui/Makefile
-    gui/icons/Makefile
+    gui/${UI_GTK_XML}:gui/GameConqueror.ui
     gui/gameconqueror
-    gui/org.freedesktop.gameconqueror.policy.in
+    gui/${XML_METAINFO}.in:gui/${XML_METAINFO}.in
+    gui/${XGD_DESKTOP}.in:gui/${XGD_DESKTOP}.in
+    gui/${POLICY_KIT}.in:gui/${POLICY_KIT}.in.in
   ])
 ])
 

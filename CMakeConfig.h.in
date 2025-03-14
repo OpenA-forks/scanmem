@@ -1,5 +1,4 @@
-/* include/config.h.      Generated from config.h.in by configure.
- * include/config.h.in.   Generated from configure.ac by autoheader.
+/* 
  */
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
@@ -31,10 +30,15 @@
 #cmakedefine HAVE_FGETLN   1
 #cmakedefine HAVE_STRDUPA  1
 #cmakedefine HAVE_STRNDUPA 1
-#cmakedefine HAVE_LIBREADLINE 1
+#cmakedefine HAVE_READLINE 1
 
 /* Defined as 1 if the following types are supported */
-#cmakedefine SIZE_INTPTR_T @SIZE_INTPTR_T@
+#cmakedefine SIZE_INT64_T    @SIZE_INT64_T@
+#cmakedefine SIZE_INTPTR_T   @SIZE_INTPTR_T@
+#cmakedefine SIZE_SSIZE_T    @SIZE_SSIZE_T@
+#cmakedefine SIZE_PID_T      @SIZE_PID_T@
+#cmakedefine SIZE_OFF_T      @SIZE_OFF_T@
+#cmakedefine SIZE_SIGHANDL_T @SIZE_SIGHANDLER_T@
 
 /* Define known-width integer types. */
 #ifdef HAVE_SYS_TYPES_H

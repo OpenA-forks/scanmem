@@ -81,6 +81,7 @@ check_type_size("int64_t"      SIZE_INT64_T)
 check_type_size("intptr_t"     SIZE_INTPTR_T)
 check_type_size("ssize_t"      SIZE_SSIZE_T)
 check_type_size("pid_t"        SIZE_PID_T)
+check_type_size("off_t"        SIZE_OFF_T)
 check_type_size("sighandler_t" SIZE_SIGHANDLER_T)
 # check constants
 check_symbol_exists("strdupa"  "string.h" HAVE_STRDUPA)
@@ -206,7 +207,7 @@ if(BUILD_CLI OR BUILD_CLI_SHARED)
 		check_include_file("readline/history.h" HAVE_RL_HISTORY_H)
 		if(HAVE_RL_READLINE_H AND HAVE_RL_HISTORY_H)
 			list(APPEND PROG_CLI_LIBS readline)
-			set(HAVE_LIBREADLINE ON CACHE FILEPATH "Build with libreadline")
+			set(HAVE_READLINE ON CACHE FILEPATH "Build with libreadline")
 		else()
 			message(FATAL_ERROR
 				"libreadline could not be found, which is required to continue."
@@ -217,7 +218,7 @@ if(BUILD_CLI OR BUILD_CLI_SHARED)
 	list(APPEND DISTRIB_MAN "scanmem.1")
 endif()
 
-configure_file(config.h.in config.h)
+configure_file(CMakeConfig.h.in config.h)
 
 message("\nConfigurations:\n\
 \n\
