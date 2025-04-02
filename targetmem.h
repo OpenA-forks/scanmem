@@ -48,9 +48,9 @@ typedef struct {
      process's memory that are covered, not the number of bytes the struct
      takes up. It's the length of data. */
 typedef struct __attribute__((packed,aligned(sizeof(old_value_and_match_info)))) {
-    uint8_t *first_byte_in_child;
+    void *first_byte_in_child;
     size_t number_of_bytes;
-    old_value_and_match_info *data;
+    old_value_and_match_info data[0];
 } matches_and_old_values_swath;
 
 /* Master matches array, smartly resized, contains swaths.
@@ -58,7 +58,7 @@ typedef struct __attribute__((packed,aligned(sizeof(old_value_and_match_info))))
 typedef struct {
     size_t bytes_allocated;
     size_t max_needed_bytes;
-    matches_and_old_values_swath *swaths;
+    matches_and_old_values_swath swaths[0];
 } matches_and_old_values_array;
 
 /* Location of a match in a matches_and_old_values_array */
@@ -103,13 +103,13 @@ index_of_last_element (matches_and_old_values_swath *swath)
     return swath->number_of_bytes - 1;
 }
 
-static inline uint8_t *
+static inline void *
 remote_address_of_nth_element (matches_and_old_values_swath *swath, size_t n)
 {
     return swath->first_byte_in_child + n;
 }
 
-static inline uint8_t *
+static inline void *
 remote_address_of_last_element (matches_and_old_values_swath *swath)
 {
     return (remote_address_of_nth_element(swath, index_of_last_element(swath)));
@@ -129,10 +129,10 @@ local_address_beyond_last_element (matches_and_old_values_swath *swath)
 
 static inline matches_and_old_values_array *
 allocate_enough_to_reach (matches_and_old_values_array *array,
-                          uint8_t *last_byte_to_reach_plus_one,
+                          void *last_byte_to_reach_plus_one,
                           matches_and_old_values_swath **swath_pointer_to_correct)
 {
-    size_t bytes_needed = last_byte_to_reach_plus_one - (uint8_t *)array;
+    size_t bytes_needed = last_byte_to_reach_plus_one - (void *)array;
 
     if (bytes_needed <= array->bytes_allocated) {
         return array;
@@ -165,8 +165,8 @@ allocate_enough_to_reach (matches_and_old_values_array *array,
            sure the math works out. */
         if (swath_pointer_to_correct) {
             (*swath_pointer_to_correct) = (matches_and_old_values_swath *)
-                (((uint8_t *)(*swath_pointer_to_correct)) +
-                 ((uint8_t *)array - (uint8_t *)original_location));
+                (((void *)(*swath_pointer_to_correct)) +
+                 ((void *)array - (void *)original_location));
         }
 
         return array;
@@ -186,7 +186,7 @@ add_element (matches_and_old_values_array **array,
         assert(swath->first_byte_in_child == NULL);
 
         /* we have to overwrite this as a new swath */
-        *array = allocate_enough_to_reach(*array, (uint8_t *)swath +
+        *array = allocate_enough_to_reach(*array, (void *)swath +
             sizeof(matches_and_old_values_swath) +
             sizeof(old_value_and_match_info), &swath);
 
@@ -194,7 +194,7 @@ add_element (matches_and_old_values_array **array,
 
     } else {
         size_t local_index_excess =
-            (uint8_t *)remote_address - remote_address_of_last_element(swath);
+            remote_address - remote_address_of_last_element(swath);
 
         size_t local_address_excess =
             local_index_excess * sizeof(old_value_and_match_info);
@@ -209,7 +209,7 @@ add_element (matches_and_old_values_array **array,
              * later we don't needlessly iterate through a bunch
              * of empty values */
             *array = allocate_enough_to_reach(*array,
-                (uint8_t *)local_address_beyond_last_element(swath) +
+                local_address_beyond_last_element(swath) +
                 needed_size_for_a_new_swath, &swath);
 
             swath = local_address_beyond_last_element(swath);
@@ -220,7 +220,7 @@ add_element (matches_and_old_values_array **array,
             /* It is more memory-efficient to write over the intervening
                space with null values */
             *array = allocate_enough_to_reach(*array,
-                (uint8_t *)local_address_beyond_last_element(swath) +
+                local_address_beyond_last_element(swath) +
                 local_address_excess, &swath);
 
             switch (local_index_excess) {

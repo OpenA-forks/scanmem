@@ -651,8 +651,9 @@ bool handler__dregion(globals_t *vars, char **argv, unsigned argc)
         if(vars->num_matches > 0)
         {
             region_t *reg_to_delete = np->data;
-            uint8_t  *start_address = reg_to_delete->start;
-            uint8_t  *  end_address = start_address + reg_to_delete->size;
+
+            void *start_address = reg_to_delete->start;
+            void *end_address = reg_to_delete->start + reg_to_delete->size;
             vars->matches = delete_in_address_range(vars->matches, &vars->num_matches,
                                                     start_address, end_address);
             if (vars->matches == NULL)
@@ -1267,7 +1268,7 @@ bool handler__show(globals_t * vars, char **argv, unsigned argc)
 
 bool handler__dump(globals_t * vars, char **argv, unsigned argc)
 {
-    char *addr;
+    void *addr;
     char *endptr;
     char *buf = NULL;
     size_t len;
@@ -1282,7 +1283,7 @@ bool handler__dump(globals_t * vars, char **argv, unsigned argc)
     
     /* check address */
     errno = 0;
-    addr = (char *)(strtoll(argv[1], &endptr, 16));
+    addr = (void *)(strtoll(argv[1], &endptr, 16));
     if ((errno != 0) || (*endptr != '\0'))
     {
         show_error("bad address, see `help dump`.\n");

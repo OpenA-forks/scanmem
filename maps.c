@@ -88,7 +88,7 @@ bool sm_readmaps(pid_t target, list_t *regions, region_scan_level_t region_scan_
         unsigned long start, end;
         region_t *map = NULL;
         char read, write, exec, cow;
-        unsigned int offset, dev_major, dev_minor, inode;
+        int offset, dev_major, dev_minor, inode;
         region_type_t type = REGION_TYPE_MISC;
 
         /* slight overallocation */

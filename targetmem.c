@@ -59,15 +59,15 @@ null_terminate (matches_and_old_values_array *array,
 
     } else {
         swath = local_address_beyond_last_element(swath );
-        array = allocate_enough_to_reach(array, ((uint8_t *)swath) +
+        array = allocate_enough_to_reach(array, ((void *)swath) +
                                          sizeof(matches_and_old_values_swath),
                                          &swath);
         swath->first_byte_in_child = NULL;
         swath->number_of_bytes = 0;
     }
 
-    bytes_needed = ((uint8_t *)swath + sizeof(matches_and_old_values_swath) -
-                    (uint8_t *)array);
+    bytes_needed = ((void *)swath + sizeof(matches_and_old_values_swath) -
+                    (void *)array);
 
     if (bytes_needed < array->bytes_allocated) {
         /* reduce array to its final size */

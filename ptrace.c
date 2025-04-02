@@ -166,14 +166,14 @@ bool sm_detach(pid_t target)
  * using either `ptrace` or `pread` on `/proc/pid/mem`.
  * The target process is not passed, but read from the static peekbuf.
  * `sm_attach()` MUST be called before this function. */
-static inline size_t readmemory(uint8_t *dest_buffer, const uint8_t *target_addr, size_t size)
+static inline size_t readmemory(uint8_t *dest_buffer, const char *target_address, size_t size)
 {
     size_t nread = 0;
 
 #if HAVE_PROCMEM
     do {
         ssize_t ret = pread(peekbuf.procmem_fd, dest_buffer + nread,
-                            size - nread, (off_t)(target_addr + nread));
+                            size - nread, (unsigned long)(target_address + nread));
         if (ret == -1) {
             /* we can't read further, report what was read */
             return nread;
@@ -189,7 +189,7 @@ static inline size_t readmemory(uint8_t *dest_buffer, const uint8_t *target_addr
     assert(size % sizeof(long) == 0);
     errno = 0;
     for (nread = 0; nread < size; nread += sizeof(long)) {
-        const uint8_t *ptrace_address = target_addr + nread;
+        const char *ptrace_address = target_address + nread;
         long ptraced_long = ptrace(PTRACE_PEEKDATA, peekbuf.pid, ptrace_address, NULL);
 
         /* check if ptrace() succeeded */
@@ -284,7 +284,7 @@ extern inline bool sm_peekdata(const void *addr, uint16_t length, const mem64_t 
     /* we need to retrieve memory to complete the request */
     for (i = 0; i < missing_bytes; i += PEEKDATA_CHUNK)
     {
-        const uint8_t *target_address = (const uint8_t *)peekbuf.base + peekbuf.size;
+        const char *target_address = peekbuf.base + peekbuf.size;
         size_t len = readmemory(&peekbuf.cache[peekbuf.size], target_address, PEEKDATA_CHUNK);
 
         /* check if the read succeeded */
@@ -497,7 +497,7 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
     element_t *n = vars->regions->head;
     region_t *r;
     unsigned long total_scan_bytes = 0;
-    unsigned long total_regs_count = vars->regions->size;
+    unsigned char *data = NULL;
 
     if (sm_choose_scanroutine(vars->options.scan_data_type, match_type, uservalue, vars->options.reverse_endianness) == false)
     {
@@ -513,7 +513,7 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
 
    
     /* make sure we have some regions to search */
-    if (total_regs_count == 0) {
+    if (vars->regions->size == 0) {
         show_warn("no regions defined, perhaps you deleted them all?\n");
         show_info("use the \"reset\" command to refresh regions.\n");
         return sm_detach(vars->target);
@@ -552,21 +552,14 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
     n = vars->regions->head;
 
     /* check every memory region */
-    for (; n && (r = n->data); n = n->next) {
-
-        size_t bytes_remaining, memlength;
-        size_t bytes_per_dot, buffer_size;
-
-        uint8_t *buf_pos, *buf_data;
-        uint8_t *reg_pos, *reg_start;
-
+    while (n) {
+        size_t bytes_remaining;
+        size_t bytes_per_dot;
         double progress_per_dot;
 
         /* load the next region */
-        reg_pos = reg_start = r->start;
-        memlength = bytes_per_dot = r->size;
-
-        bytes_per_dot /= NUM_DOTS;
+        r = n->data;
+        bytes_per_dot = r->size / NUM_DOTS;
         bytes_remaining = bytes_per_dot * NUM_DOTS;
         progress_per_dot = (double)bytes_per_dot / total_scan_bytes;
 
@@ -578,19 +571,22 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
 #define MAX_ALLOC_SIZE  (MAX_BUFFER_SIZE + (1<<16))
 
         /* allocate data array */
-        if (!(buf_data = malloc(MIN(memlength, MAX_ALLOC_SIZE)))) {
+        size_t alloc_size = MIN(r->size, MAX_ALLOC_SIZE);
+        if ((data = malloc(alloc_size * sizeof(char))) == NULL) {
             show_error("sorry, there was a memory allocation error.\n");
             return false;
         }
 
         /* print a progress meter so user knows we haven't crashed */
         show_user("%02lu/%02lu searching %#10lx - %#10lx", ++regnum,
-                total_regs_count, (unsigned long)reg_start, (unsigned long)(reg_start + memlength));
+                vars->regions->size, (unsigned long)r->start, (unsigned long)r->start + r->size);
         fflush(stderr);
 
         /* For every offset, check if we have a match. */
-        buffer_size = 0;
-        buf_pos = NULL;
+        size_t memlength = r->size;
+        size_t buffer_size = 0;
+        void *reg_pos = r->start;
+        const uint8_t *buf_pos = NULL;
         for ( ; ; memlength--, buffer_size--, reg_pos++, buf_pos++) {
 
             /* check if the buffer is finished (or we just started) */
@@ -612,11 +608,11 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
 
                 /* load the next buffer block */
                 size_t read_size = MIN(memlength, MAX_ALLOC_SIZE);
-                size_t nread = readmemory(buf_data, reg_pos, read_size);
+                size_t nread = readmemory(data, reg_pos, read_size);
                 if (nread < read_size) {
                     /* the region ends here, update `memlength` */
                     memlength = nread;
-                    if ((nread == 0) && (reg_pos == reg_start)) {
+                    if ((nread == 0) && (reg_pos == r->start)) {
                         /* Failed on first read, which means region not exist. */
                         show_warn("reading region %02u failed.\n", regnum);
                         break;
@@ -627,7 +623,7 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
                  * Otherwise we need to stop at `MAX_BUFFER_SIZE`, so that
                  * the last byte we look at has a full VLT after it */
                 buffer_size = memlength <= MAX_ALLOC_SIZE ? memlength : MAX_BUFFER_SIZE;
-                buf_pos = buf_data;
+                buf_pos = data;
             }
 
             const mem64_t* memory_ptr = (mem64_t*)buf_pos;
@@ -658,14 +654,14 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
 
         }
 
-        free(buf_data);
+        free(data);
 
         /* stop scanning if asked to */
         if (vars->stop_flag) {
             printf("\n");
             break;
         }
-
+        n = n->next;
         show_user("ok\n");
     }
 
@@ -690,7 +686,6 @@ bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const userv
 bool sm_setaddr(pid_t target, void *addr, const value_t *to)
 {
     unsigned int i;
-    uint8_t *memaddr = addr;
     uint8_t memarray[sizeof(uint64_t)] = {0};
     size_t memlength;
 
@@ -717,7 +712,7 @@ bool sm_setaddr(pid_t target, void *addr, const value_t *to)
     if (sm_globals.options.no_ptrace)
     {
 #if HAVE_PROCMEM
-        if (pwrite(peekbuf.procmem_fd, memarray, sizeof(uint64_t), (off_t)addr) == -1)
+        if (pwrite(peekbuf.procmem_fd, memarray, sizeof(uint64_t), (long)addr) == -1)
         {
             return false;
         }
@@ -730,7 +725,7 @@ bool sm_setaddr(pid_t target, void *addr, const value_t *to)
         /* Assume `sizeof(uint64_t)` is a multiple of `sizeof(long)` */
         for (i = 0; i < sizeof(uint64_t); i += sizeof(long))
         {
-            if (ptrace(PTRACE_POKEDATA, target, memaddr + i, *(long*)(memarray + i)) == -1L) {
+            if (ptrace(PTRACE_POKEDATA, target, addr + i, *(long*)(memarray + i)) == -1L) {
                 return false;
             }
         }
@@ -758,9 +753,6 @@ bool sm_read_array(pid_t target, const void *addr, void *buf, size_t len)
 /* TODO: may use /proc/<pid>/mem here */
 bool sm_write_array(pid_t target, void *addr, const void *data, size_t len)
 {
-    /*~*/ uint8_t *mem_addr = addr;
-    const uint8_t *byte_arr = data;
-
     unsigned int i,j;
     long peek_value;
 
@@ -771,7 +763,7 @@ bool sm_write_array(pid_t target, void *addr, const void *data, size_t len)
     if (sm_globals.options.no_ptrace)
     {
 #if HAVE_PROCMEM
-        if (pwrite(peekbuf.procmem_fd, data, len, (off_t)addr) == -1)
+        if (pwrite(peekbuf.procmem_fd, data, len, (long)addr) == -1)
         {
             return false;
         }
@@ -783,7 +775,7 @@ bool sm_write_array(pid_t target, void *addr, const void *data, size_t len)
     {
         for (i = 0; i + sizeof(long) < len; i += sizeof(long))
         {
-            if (ptrace(PTRACE_POKEDATA, target, mem_addr + i, *(long *)(byte_arr + i)) == -1L) {
+            if (ptrace(PTRACE_POKEDATA, target, addr + i, *(long *)(data + i)) == -1L) {
                 return false;
             }
         }
@@ -792,7 +784,7 @@ bool sm_write_array(pid_t target, void *addr, const void *data, size_t len)
         {
             if (len > sizeof(long)) /* rewrite last sizeof(long) bytes of the buffer */
             {
-                if (ptrace(PTRACE_POKEDATA, target, mem_addr + len - sizeof(long), *(long *)(byte_arr + len - sizeof(long))) == -1L) {
+                if (ptrace(PTRACE_POKEDATA, target, addr + len - sizeof(long), *(long *)(data + len - sizeof(long))) == -1L) {
                     return false;
                 }
             }
@@ -802,7 +794,7 @@ bool sm_write_array(pid_t target, void *addr, const void *data, size_t len)
                 for(j = 0; j <= sizeof(long) - (len - i); ++j)
                 {
                     errno = 0;
-                    if(((peek_value = ptrace(PTRACE_PEEKDATA, target, mem_addr - j, NULL)) == -1L) && (errno != 0))
+                    if(((peek_value = ptrace(PTRACE_PEEKDATA, target, addr - j, NULL)) == -1L) && (errno != 0))
                     {
                         if (errno == EIO || errno == EFAULT) /* may try next shift */
                             continue;
@@ -815,9 +807,9 @@ bool sm_write_array(pid_t target, void *addr, const void *data, size_t len)
                     else /* peek success */
                     {
                         /* write back */
-                        memcpy(((int8_t*)&peek_value)+j, byte_arr+i, len-i);
+                        memcpy(((int8_t*)&peek_value)+j, data+i, len-i);
 
-                        if (ptrace(PTRACE_POKEDATA, target, mem_addr - j, peek_value) == -1L)
+                        if (ptrace(PTRACE_POKEDATA, target, addr - j, peek_value) == -1L)
                         {
                             show_error("%s failed.\n", __func__);
                             return false;
