@@ -12,6 +12,12 @@
 # include <sys/types.h>
 # include <sys/stat.h>
 
+#if HAVE_SYS_SOCK_H
+# include <sys/socket.h>
+# include <sys/un.h>
+#endif
+# define SYS_MAXBUF 1024
+
 #if HAVE_SECURE_GETENV
 # define _GET_ENV secure_getenv
 #else
@@ -90,6 +96,22 @@ static inline bool sys_mkcdir(struct sys_path *dir, mode_t mode)
 		ok = false;
 	sys_restor_to_file(dir);
 	return ok;
+}
+
+static inline int sys_connect_sock(const char *ipc_path)
+{
+	int client_fd, stat_c;
+	struct sockaddr_un serv_addr = {
+		.sun_family = AF_UNIX
+	};
+	if ((client_fd = socket(AF_UNIX, SOCK_STREAM, 0)) != -1) {
+		strncpy(
+			serv_addr.sun_path, ipc_path, sizeof(serv_addr.sun_path) - 1
+		);
+		if ((stat_c = connect(client_fd, (struct sockaddr*)&serv_addr, sizeof(serv_addr))) == -1)
+			client_fd = -2;
+	}
+	return client_fd;
 }
 
 #endif // _SYS_H

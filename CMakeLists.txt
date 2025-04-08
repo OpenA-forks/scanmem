@@ -24,9 +24,11 @@ set(PROJECT_HEADERS
 	"commands.h"
 	"list.h"
 	"sets.h"
-	"maps.h"
+	"src/sys.h"
+	"src/procmaps.h"
 	"handlers.h"
-	"scanmem.h"
+	"src/messages.h"
+	"src/scanmem2.h"
 	"interrupt.h"
 	"scanroutines.h"
 	"targetmem.h"
@@ -40,8 +42,8 @@ set(PROJECT_SOURCES
 	"ptrace.c"
 	"handlers.c"
 	"interrupt.c"
-	"maps.c"
-	"scanmem.c"
+	"src/procmaps.c"
+	"src/scanmem2.c"
 	"scanroutines.c"
 	"sets.c"
 	"targetmem.c"
@@ -161,6 +163,7 @@ option(BUILD_RELEASE "Build without debug logs and turn warnings to errors" OFF)
 if(NOT BUILD_RELEASE)
 	# check code compliance with standard
 	list(APPEND PROJECT_WERROR -Wpedantic)
+	list(APPEND PROJECT_DEFS   -DDEBUG)
 else()
 	# check unused code blocks
 	list(APPEND PROJECT_WERROR -Wextra)

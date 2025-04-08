@@ -24,7 +24,7 @@
 #include "config.h"
 
 #include "common.h"
-#include "scanmem.h"
+#include "scanmem2.h"
 #include "commands.h"
 #include "show_message.h"
 
@@ -147,7 +147,87 @@ static int iter_main_loop(globals_t *vars, struct sys_path *cfg_dir)
 	return EXIT_SUCCESS;
 }
 
-static int iter_main_sock(globals_t *vars, const char *ipc_port) {
+static inline void sock_scan_progress(globals_t *vars)
+{
+	SM_Message("{"F_JSON_NUM("scan_progress","%f")"}",
+		sm_get_scan_progress());
+}
+
+static inline void sock_match_info(globals_t *vars, const char *c_pid)
+{
+	pid_t pid = c_pid[0] ? atoi(&c_pid[1]) : vars->target;
+
+	SM_Message("{"F_JSON_NUM("is_process_dead","%d")","F_JSON_NUM("match_count","%lu")"}",
+		sm_process_is_dead(pid),
+		sm_get_num_matches());
+}
+
+static inline void sock_reset_process(globals_t *vars, const char *c_pid)
+{
+	pid_t pid = c_pid[0] ? atoi(&c_pid[1]) : 0;
+
+	SM_Debug("reset (%s)", c_pid);
+
+	if (c_pid[0] && pid > 0) {
+		vars->target = pid;
+	} else {
+		pid = vars->target;
+	}
+	sm_reset_process(vars);
+}
+
+static int iter_sock_loop(globals_t *vars, const int ipc_fd)
+{
+	int _stderr_fd = dup(STDERR_FILENO);
+	( void )dup2(ipc_fd, STDERR_FILENO);
+
+# define _stW_4(_B,_S) (_B[0] ==_S[0] && _B[1] ==_S[1] && _B[2] ==_S[2] && _B[3] ==_S[3])
+# define _stW_5(_B,_S) (_stW_4(_B,_S) && _B[4] ==_S[4])
+
+	struct {
+		unsigned char ipos:7;
+		bool quit:1;
+		const char endl[4];
+		char buf[127];
+	} loop = {
+		.ipos = 0,
+		.quit = false,
+		.endl = "{}\n",
+		.buf  = {0}
+	};
+	sm_set_backend();
+
+	while (!loop.quit)
+	{ // receive data from the server
+		if (read(ipc_fd, loop.buf, sizeof(loop.buf)) == -1) {
+			puts("  --- ???");
+			continue;
+		}
+		SM_Debug("%s", loop.buf);
+		loop.ipos = 0;
+
+		/*--*/ if (_stW_4(loop.buf, "exit")) { loop.quit = true;
+		} else if (_stW_5(loop.buf, "reset")){ loop.ipos = 2; sock_reset_process(vars, &loop.buf[5]);
+		} else if (_stW_4(loop.buf, "dump")) {
+		} else if (_stW_4(loop.buf, "list")) {
+		} else if (_stW_4(loop.buf, "info")) { loop.ipos = 2; sock_match_info(vars, &loop.buf[4]);
+		} else if (_stW_4(loop.buf, "pgss")) { loop.ipos = 2; sock_scan_progress(vars);
+		} else if (_stW_4(loop.buf, "find")) {
+		} else if (_stW_4(loop.buf, "stop")) {
+			// Sets the flag to interrupt the current scan at the next opportunity
+			sm_set_stop_flag(true);
+		} else {
+		}
+		if (write(ipc_fd, &loop.endl[loop.ipos], sizeof(loop.endl) - loop.ipos - 1)) {
+			
+		}
+		fflush(stdout);
+		fflush(stderr);
+	}
+	dup2(_stderr_fd, STDERR_FILENO);
+	shutdown(ipc_fd, SHUT_WR);
+	sleep(1);
+	close(ipc_fd);
 	return EXIT_SUCCESS;
 }
 
@@ -157,9 +237,9 @@ void print_output() {
 
 int main(int argc, char *const argv[])
 {
-	/*~*/ char *cmd_iter;
-	const char *ipc_port;
-	struct opt_params opts = parse_parameters(argc, argv, &cmd_iter, &ipc_port);
+	/*~*/ char *cmd_iter = NULL;
+	const char *ipc_path = NULL;
+	struct opt_params opts = parse_parameters(argc, argv, &cmd_iter, &ipc_path);
 	struct sys_path sm_appcfg;
 
 	if (opts.print_help || opts.wrong_opt) {
@@ -185,8 +265,17 @@ int main(int argc, char *const argv[])
 		ret = EXIT_FAILURE;
 	} else
 	// Start of interactive mode
-	if (ipc_port) {
-		ret = iter_main_sock(&sm_globals, ipc_port);
+	if (ipc_path) {
+		int ipc_fd = sys_connect_sock(ipc_path);
+		if (ipc_fd == -1) {
+			SM_Error("Unable to create a socket");
+			ret = EXIT_FAILURE;
+		} else if (ipc_fd == -2) {
+			SM_Error("Socket connection failed");
+			ret = EXIT_FAILURE;
+		} else {
+			ret = iter_sock_loop(&sm_globals, ipc_fd);
+		}
 	} else {
 		puts(COPYRIGHT_TEXT);
 		if (!opts.is_usr_root) {

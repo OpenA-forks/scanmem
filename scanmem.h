@@ -32,7 +32,7 @@
 
 #include "scanroutines.h"
 #include "list.h"
-#include "maps.h"
+#include "src/procmaps.h"
 #include "value.h"
 #include "targetmem.h"
 

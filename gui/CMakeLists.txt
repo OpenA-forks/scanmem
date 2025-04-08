@@ -53,8 +53,8 @@ set(GC_install_dir
 set(DISTRIB_DATADIR
 	${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR} )
 
-set(DISTRIB_LIBPATH
-	${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/${DISTRIB_LIB} )
+set(DISTRIB_BINPATH
+	${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR} )
 
 configure_file("GameConqueror.ui" ${UI_GTK_XML})
 configure_file("gameconqueror.in" ${GC_name}.sh)

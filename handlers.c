@@ -56,6 +56,7 @@
 #include "scanroutines.h"
 #include "sets.h"
 #include "show_message.h"
+#include "maps.c"
 
 #define USEPARAMS() ((void) vars, (void) argv, (void) argc)     /* macro to hide gcc unused warnings */
 

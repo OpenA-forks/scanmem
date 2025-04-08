@@ -35,7 +35,7 @@
 #include <unistd.h>
 
 #include "list.h"
-#include "maps.h"
+#include "src/procmaps.h"
 #include "getline.h"
 #include "show_message.h"
 

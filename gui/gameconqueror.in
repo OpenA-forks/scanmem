@@ -5,13 +5,13 @@ DATADIR="@DISTRIB_DATADIR@"
 HOMEURL="@PROJECT_HOMEPAGE_URL@"
 APPNAME="@DISTRIB_APPNAME@"
 VERSION="@PROJECT_VERSION@~@PROJECT_BUILDVER@"
-LIBPATH="@DISTRIB_LIBPATH@"
+BINPATH="@DISTRIB_BINPATH@"
 
 APPDIR="$DATADIR/$APPNAME"
 SOCKET="/tmp/scanmem-$VERSION-socket"
 PKEXEC=$(command -v "pkexec")
 PROCID=""
-CONFIG="$HOME/.config/$APPNAME/settings.cfg"
+CONFIG="$HOME/.config/scanmem/$APPNAME.cfg"
 DEBUG=
 NOT_PERMITED=
 RUNNING=
@@ -61,11 +61,8 @@ pk_exec() {
   fi
 }
 
-py_scanmem() {
-  pk_exec env SCANMEM_LIBDIR="$LIBPATH"\
-              SCANMEM_SOCKET="$SOCKET"\
-              SCANMEM_DEBUG="$DEBUG"\
-  python3 "$APPDIR/scanmem.py"
+pk_scanmem() {
+  pk_exec "$BINPATH/scanmem" -ipc="$SOCKET" $PROCID
 }
 
 py_gameconqueror()
@@ -96,5 +93,5 @@ if [ ! -z "$RUNNING" ]; then
   echo "allready running!"
 else
   py_gameconqueror&
-  py_scanmem
+  pk_scanmem
 fi

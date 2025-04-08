@@ -803,7 +803,7 @@ class GameConqueror():
     # this callback will be called from other thread
     def progress_watcher(self):
         if self.command_lock.acquire(blocking=False):
-            pgss = self.command_send('pgss')[0]['scan_progress']
+            pgss = self.command_send('pgss')['scan_progress']
             self._ui.scan_progbar.set_fraction(pgss)
             if pgss >= 1.0:
                 self.is_scanning = False
@@ -848,15 +848,15 @@ class GameConqueror():
             self._ui.cheatList_list[i][0] = False
 
     def command_send(self, cmd: str, cap = 1024):
-        "**", self._bg.sendall(cmd.encode())
-        buf = self._bg.recv(cap)
+        "**", self._bg.sendall(cmd.encode() + b'\0')
+        buf = self._bg.recv(cap).strip(b'\0')
         try:
             data = json.loads(buf)
-            if len(data) and 'error' in data[0]:
-                raise Exception(data[0]['error'])
+            if 'error' in data:
+                raise Exception(data['error'])
         except Exception as e:
             cmd_n = cmd.split(' ',1)[0]
-            self._ui.show_error(f'Error [{cmd_n}] @ {e.args[0]}')
+            self._ui.show_error(f'Error `{cmd_n}` @ {e} => {buf}')
         return data
 
     def reset_scan(self, reset_pid = -1):
@@ -864,7 +864,8 @@ class GameConqueror():
         self._ui.scanRes_list.clear()
 
         self.command_lock.acquire()
-        self.command_send(f'reset {reset_pid}')
+        data = self.command_send(f'reset {reset_pid}')
+        self._ui.show_error(data)
         self.update_scan_result()
         self.command_lock.release()
 
@@ -939,13 +940,13 @@ class GameConqueror():
 
     def update_scan_result(self):
 
-        info = self.command_send(f'info {self._pid}')[0]
-        self._ui.main_window.set_title(misc.ltr('Found: %d')% info['found'])
+        info = self.command_send(f'info {self._pid}')
+        self._ui.main_window.set_title(misc.ltr('Found: %d')% info['match_count'])
 
-        if (info['found'] > SCAN_RESULT_LIST_LIMIT) or info['is_process_dead']:
+        if (info['match_count'] > SCAN_RESULT_LIST_LIMIT) or info['is_process_dead']:
             self._ui.scanRes_list.clear()
             return
-
+        return
         matches = self.command_send(f'list L{MATCH_CNT}', 4096)
 
         self._ui.scanRes_tree.set_model(None)
@@ -987,9 +988,9 @@ class GameConqueror():
     def data_worker(self):
         # non-blocking
         if self._pid and self.command_lock.acquire(blocking=False):
-            info = self.command_send(f'info {self._pid}')[0]
+            info = self.command_send(f'info {self._pid}')
             if not info['is_process_dead']:
-                self.refresh_tree(info['found'])
+                self.refresh_tree(info['match_count'])
             self.command_lock.release()
         return not self.exiting_flag
 
@@ -1034,7 +1035,7 @@ class GameConqueror():
         cap = nb * 4 + 16
 
         self.command_lock.acquire()
-        data = self.command_send(f'dump {addr} {nb}', cap if cap > 1024 else 1024)[0]
+        data = self.command_send(f'dump {addr} {nb}', cap if cap > 1024 else 1024)
         self.command_lock.release()
 
         # TODO raise Exception here isn't good
