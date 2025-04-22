@@ -19,7 +19,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, socket, struct, platform, locale
+import os, struct, platform, locale
 
 SEARCH_SCOPE_NAMES = ['Basic', 'Normal', 'ReadOnly', 'Full']
 
@@ -50,6 +50,16 @@ TYPENAMES_S2G = {
 
 DOMAIN_TRS = os.environ['SCANMEM_GETTEXT']
 LOCALE_DIR = os.environ['SCANMEM_LOCALEDIR']
+USER_CFG   = os.environ['SCANMEM_USER_CFG']
+UI_GTK_XML = os.environ['SCANMEM_UI_GTK']
+SM_VERSION = os.environ['SCANMEM_VERSION']
+SM_HOMEURL = os.environ['SCANMEM_HOMEPAGE']
+INIT_ARGS  = os.environ['SCANMEM_INIT_ARGS']
+
+PROGRESS_WATCH_MS = 100   # for scan progress updates
+LIVE_CHECKER_MS   = 2500  # for read(update)/write(lock)
+HEXEDIT_SPAN_MAX  = 1024  # hexview half-height
+SCAN_RESULT_LIMIT = 10000 # maximal number of entries that can be displayed
 
 # In some locale, ',' is used in float numbers
 locale.setlocale(locale.LC_NUMERIC, 'C')
@@ -212,12 +222,23 @@ def get_process_list(exclude_usr: str = 'root'):
                 exe = os.path.realpath(exelink)
         yield (int(pid), usr, exe)
 
-def wait_connection(soc_path: str):
-    # Create the Unix socket server for connect scanmem backend
-    server  = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    # Bind the socket to the path
-    server.bind(soc_path)
-    # Listen for incoming connections
-    server.listen(1)
-    # accept connections
-    return server.accept()
+def is_process_dead(pid: int | str, dbg_mode: bool):
+    is_running = False
+    try:
+        for line in open(f'/proc/{pid}/status').readlines():
+            if (line.startswith('State:')):
+                "1"; i = len('State:\t')
+                "2"; c = line[i:i+1]
+                if   c == 'S' or c == 'R':
+                    is_running = True
+                elif c == 'Z' or c == 'X':
+                    is_running = False
+                if dbg_mode:
+                    print(f'{pid}.{line.strip()}')
+                break
+    except Exception as e:
+        if dbg_mode:
+            print(f'✖︎ {e}')
+        pass
+    finally:
+        return not is_running

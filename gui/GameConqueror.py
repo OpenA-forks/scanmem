@@ -21,24 +21,15 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os, sys, socket, misc, threading, json, gi
+import scanmem, misc, gi
 # check toolkit version
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GObject, GLib, Pango
-
-SOCK_PATH   = os.environ['SCANMEM_SOCKET']
-UI_GTK_PATH = os.environ['SCANMEM_UIGTK']
-VERSION     = os.environ['SCANMEM_VERSION']
-IS_DEBUG    = os.environ['SCANMEM_DEBUG']
-HOMEPAGE    = os.environ['SCANMEM_HOMEPAGE']
+# import Gtk libraries
+from gi.repository import Gtk, Gdk, GObject, GLib
 
 from hexview import HexView
 
 MATCH_CNT = 32
-PROGRESS_INTERVAL = 100 # for scan progress updates
-DATA_WORKER_INTERVAL = 500 # for read(update)/write(lock)
-HEXEDIT_SPAN = 1024 # hexview half-height
-SCAN_RESULT_LIST_LIMIT = 10000 # maximal number of entries that can be displayed
 
 class GcUI(Gtk.Builder):
 
@@ -46,7 +37,7 @@ class GcUI(Gtk.Builder):
         super(GcUI, self).__init__()
 
         self.set_translation_domain(misc.DOMAIN_TRS)
-        self.add_from_file(UI_GTK_PATH)
+        self.add_from_file(misc.UI_GTK_XML)
 
         self.    main_window = self.get_object('MainWindow')
         self.  mmedit_window = self.get_object('MemoryEditor_Window')
@@ -68,8 +59,10 @@ class GcUI(Gtk.Builder):
         self. procList_tree  = self.get_object('ProcessList_TreeView')
 
         # set version
-        self.about_dialog.set_version(VERSION)
-        self.about_dialog.set_website(HOMEPAGE)
+        self.about_dialog.set_version(misc.SM_VERSION)
+        self.about_dialog.set_website(misc.SM_HOMEURL)
+        # deferred creation
+        self. mmedit_hexview : HexView = None
         # init ScanResult @ columns:      addr, value, type, valid, offset, region, match_id
         self.scanRes_list = Gtk.ListStore(str , str  , str , bool , str   , str   , int)
         self.scanRes_tree.set_model(self.scanRes_list)
@@ -265,22 +258,35 @@ class GcUI(Gtk.Builder):
         return -1
 
 
-class GameConqueror():
-    def __init__(self, connect: socket.socket):
+class GameConqueror(scanmem.Scanmem):
+
+    def __init__(self, pid: str, dbg: bool):
+        super(GameConqueror, self).__init__(pid,dbg)
 
         self.lock_data_type = 'int32'
         self.scan_data_type = 'int32'
         self.search_scope   = 1 # normal
 
+        ###########################
+        # init others (backend, flag...)
+        self._exec: str  = ''
+        self._mcnt: int  = 0 # found count
+        self._nreg: int  = 0 # regions count
+        self._wtid: int  = 0
+        self._maps: list = None
+        self._ui  : GcUI = None
+
+    def Create_MemoryEditor(self):
+        # init memory editor
+        self._ui.mmedit_hexview = HexView()
+        self._ui.mmedit_window.get_child().pack_start(self._ui.mmedit_hexview, True, True, 0)
+        self._ui.mmedit_hexview.show_all()
+        self._ui.mmedit_hexview.connect('char-changed', self.MemoryEditor_Byte_Changed_handler)
+
+    def create_window(self):
         ##################################
         # init GUI
-        gcui = GcUI()
-
-        # init memory editor
-        self.memoryeditor_hexview = HexView()
-        gcui.mmedit_window.get_child().pack_start(self.memoryeditor_hexview, True, True, 0)
-        self.memoryeditor_hexview.show_all()
-        self.memoryeditor_hexview.connect('char-changed', self.memoryeditor_hexview_char_changed_cb)
+        gcui = self._ui = GcUI()
 
         ###
         # Set scan data type
@@ -342,9 +348,7 @@ class GameConqueror():
         # get list of things to be disabled during scan
         gcui.get_object('SelectProcess_Button').connect('clicked', self.do_ListProcess_Select)
         # init AddCheatDialog
-        self.addcheat_address_input = gcui.get_object('Address_Input')
-        self.addcheat_address_input.override_font(Pango.FontDescription("Monospace"))
-
+        self.addcheat_address_input     = gcui.get_object('Address_Input')
         self.addcheat_description_input = gcui.get_object('Description_Input')
         self.addcheat_length_spinbutton = gcui.get_object('Length_SpinButton')
 
@@ -370,23 +374,8 @@ class GameConqueror():
         ])
         gcui.connect_signals(self)
         gcui.main_window.connect('destroy', self.exit)
-
-        ###########################
-        # init others (backend, flag...)
-        self._maps: list = None
-        self._bits: int  = misc.get_pointer_width()
-        self._cnt = 0 # found count
-        self._pid = 0 # target pid
-        self._bg = connect
-        self._ui = gcui
-
-        self.is_scanning = False
-        self.exiting_flag = False # currently for data_worker only, other 'threads' may also use this flag
-        self.is_first_scan = True
-
+        # initialize other objects
         self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-        self._watch_id = GLib.timeout_add(DATA_WORKER_INTERVAL, self.data_worker)
-        self.command_lock = threading.RLock()
 
 
     ###########################
@@ -395,9 +384,11 @@ class GameConqueror():
     # Memory editor
 
     def MemoryEditor_Button_clicked_cb(self, button, data=None):
-        if self._pid == 0:
+        if not self._cpid:
             self._ui.show_error('Please select a process')
             return
+        if not self._ui.mmedit_hexview:
+            self.Create_MemoryEditor()
         self.browse_memory()
         return True
 
@@ -502,10 +493,9 @@ class GameConqueror():
         return True
 
     def Stop_Button_clicked_cb(self, button, data=None):
-        self.command_lock.acquire()
-        self.command_send('stop')
-        self.is_scanning = False
-        self.command_lock.release()
+        emsg = self.stop_scanning()
+        if emsg:
+            self._ui.show_error(emsg)
         return True
 
     def Reset_Button_clicked_cb(self, button, data=None):
@@ -531,6 +521,7 @@ class GameConqueror():
                 self.do_ListProcess_Select()
             else:
                 pid, proc = lstor.get(iter, 0, 2)
+                GLib.source_remove(self._wtid)
                 self.select_process(pid, proc)
         self._ui.procList_dialog.hide()
 
@@ -540,23 +531,26 @@ class GameConqueror():
 
     # Memory editor
 
-    def memoryeditor_hexview_char_changed_cb(self, hexview, offset, charval):
+    def MemoryEditor_Byte_Changed_handler(self, hexview, offset, charval):
         addr = hexview.base_addr + offset
         self.write_value(addr, 'int8', charval)
         # return False such that the byte the default handler will be called, and will be displayed correctly 
         return False
 
     def MemoryEditor_Refresh_Button_clicked_cb(self, button, data=None):
-        dlength = len(self.memoryeditor_hexview.payload)
-        data = self.read_memory(self.memoryeditor_hexview.base_addr, dlength)
-        if data is None:
+        addr = int(self._ui.mmedit_hexview.base_addr)
+        size = len(self._ui.mmedit_hexview.payload)
+        old_addr = self._ui.mmedit_hexview.get_current_addr()
+        emsg,buf = self.read_memory(addr, size)
+        # ----
+        if emsg:
+            self._ui.show_error(emsg)
+        # ----
+        if buf != None:
+            self._ui.mmedit_hexview.payload = buf
+            self._ui.mmedit_hexview.show_addr(old_addr)
+        else:
             self._ui.mmedit_window.hide()
-            self._ui.show_error('Cannot read memory')
-            return
-        old_addr = self.memoryeditor_hexview.get_current_addr()
-        self.memoryeditor_hexview.payload = bytes(data)
-        self.memoryeditor_hexview.show_addr(old_addr)
-
 
     # Manually add cheat
 
@@ -597,11 +591,8 @@ class GameConqueror():
     def on_PopupMenu_Scan(self, mitem, ltree):
         lstor, plist = ltree.get_selection().get_selected_rows()
         hexx = '%#x' % lstor.get_value(lstor.get_iter(plist[0]), 0)
-        if self._bits == -1:
-            self._ui.show_error('Unknown architecture, you may report to developers')
-            return False
         self.reset_scan()
-        self.scan_data_type = f'int{self._bits}'
+        self.scan_data_type = 'int32'
         self._ui.scanVal_input.set_text(hexx)
         GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
         self.do_scan()
@@ -734,29 +725,24 @@ class GameConqueror():
                 self.userfilter_input.get_text().lower() in user.lower()
 
     def read_cheat_list(self, file):
-        obj = json.load(file)
-        for row in obj['cheat_list']:
-            self.add_to_cheat_list(desc = row[1], typestr = row[3],
-                                   addr = row[2], value   = row[4], at_end=True)
+        for ch in self.load_cheat_list(file):
+            self._ui.cheatList_list.append([
+                False, ch['desc'], ch['addr'], ch['type'], ch['value'], True
+            ])
 
     def write_cheat_list(self, file):
-        obj = { 'cheat_list' : [] }
-        for row in self._ui.cheatList_list:
-            obj['cheat_list'].append(list(row))
-        json.dump(obj, file)
+        self.store_cheat_list( file, self._ui.cheatList_list )
 
     def del_selected_matches(self, sel_ids: list[str] ):
         idx = 0
-        self.command_lock.acquire()
         while idx < len(sel_ids):
             self.command_send('delete '+','.join(sel_ids[ idx : idx+32 ]))
             idx += 32
-        self.command_lock.release()
 
     def browse_memory(self, addr=None):
         # select a region contains addr
         try:
-            self._maps = misc.read_proc_maps(self._pid)
+            self._maps = misc.read_proc_maps(self._cpid)
         except:
             self._ui.show_error('Cannot retrieve memory maps of that process, maybe it has exited (crashed), or you don\'t have enough privileges')
             return
@@ -785,31 +771,38 @@ class GameConqueror():
             addr = selected_region['start_addr']
 
         # read region if possible
-        start_addr = max(addr - HEXEDIT_SPAN, selected_region['start_addr'])
-        end_addr = min(addr + HEXEDIT_SPAN, selected_region['end_addr'])
-        data = self.read_memory(start_addr, end_addr - start_addr)
-        if data is None:
-            self._ui.show_error('Cannot read memory')
-            return
-        self.memoryeditor_hexview.payload = bytes(data)
-        self.memoryeditor_hexview.base_addr = start_addr
-        
-        # set editable flag
-        self.memoryeditor_hexview.editable = (selected_region['flags'][1] == 'w')
-
-        self.memoryeditor_hexview.show_addr(addr)
-        self._ui.mmedit_window.show()
+        start_addr = max(addr - misc.HEXEDIT_SPAN_MAX, selected_region['start_addr'])
+        end_addr   = min(addr + misc.HEXEDIT_SPAN_MAX, selected_region['end_addr'])
+        # ----
+        emsg, buf  = self.read_memory(start_addr, end_addr - start_addr)
+        if emsg:
+            self._ui.show_error(emsg)
+        # ----
+        if buf != None:
+            self._ui.mmedit_hexview.payload = buf
+            self._ui.mmedit_hexview.show_addr(addr)
+            # set editable flag
+            self._ui.mmedit_hexview.base_addr = start_addr
+            self._ui.mmedit_hexview.editable = (selected_region['flags'][1] == 'w')
+            self._ui.mmedit_window.show()
 
     # this callback will be called from other thread
     def progress_watcher(self):
-        if self.command_lock.acquire(blocking=False):
-            pgss = self.command_send('pgss')['scan_progress']
+        if self._is_scanning:
+            emsg,pgss,mcnt = self.get_scan_progress()
+            if emsg:
+                self._ui.show_error(emsg)
+
+            self._mcnt = mcnt
             self._ui.scan_progbar.set_fraction(pgss)
+
             if pgss >= 1.0:
-                self.is_scanning = False
-                self.scan_thread_func()
-            self.command_lock.release()
-        return self.is_scanning and not self.exiting_flag
+                self._is_scanning = False
+                self.update_scan_result(mcnt)
+                #self.reload_list_matches(m_count)
+                self.set_ui_deactive(active=True)
+
+        return self._is_scanning and not self._is_exiting
 
     def add_to_cheat_list(self, addr, value, typestr, desc='No Description', at_end=False):
         # determine longest possible type
@@ -830,10 +823,11 @@ class GameConqueror():
         # reset flags
         # for debug/log
         try:
-            self._pid  = int(pid)
+            self._cpid = pid
             self._maps = misc.read_proc_maps(pid)
+            self._wtid = GLib.timeout_add(misc.LIVE_CHECKER_MS, self.process_status_checker)
         except:
-            self._pid = 0
+            self._cpid = ''
             self._ui.process_label.set_text('No process selected')
             self._ui.process_label.set_property('tooltip-text', 'Select a process')
             self._ui.show_error('Cannot retrieve memory maps of that process, maybe it has exited (crashed), or you don\'t have enough privileges')
@@ -841,38 +835,29 @@ class GameConqueror():
             self._ui.process_label.set_text('%d - %s' % (pid, process_name))
             self._ui.process_label.set_property('tooltip-text', process_name)
 
-        self.reset_scan(pid)
+        self.reset_scan()
 
         # unlock all entries in cheat list
         for i in range(len(self._ui.cheatList_list)):
             self._ui.cheatList_list[i][0] = False
 
-    def command_send(self, cmd: str, cap = 1024):
-        "**", self._bg.sendall(cmd.encode() + b'\0')
-        buf = self._bg.recv(cap).strip(b'\0')
-        try:
-            data = json.loads(buf)
-            if 'error' in data:
-                raise Exception(data['error'])
-        except Exception as e:
-            cmd_n = cmd.split(' ',1)[0]
-            self._ui.show_error(f'Error `{cmd_n}` @ {e} => {buf}')
-        return data
-
-    def reset_scan(self, reset_pid = -1):
+    def reset_scan(self):
         # reset search type and value type
         self._ui.scanRes_list.clear()
 
-        self.command_lock.acquire()
-        data = self.command_send(f'reset {reset_pid}')
-        self._ui.show_error(data)
-        self.update_scan_result()
-        self.command_lock.release()
+        emsg, rcount, exelnk = self.reset_process()
 
         self._ui.scan_progbar.set_fraction(0.0)
         self._ui.scan_options.set_sensitive(True)
-        self.is_first_scan = True
-        self._ui.scanVal_input.grab_focus()
+
+        if emsg:
+            self._ui.show_error(emsg)
+        else:
+            self._exec = exelnk
+            self._nreg = rcount
+            self._is_firstRun = True
+            self._ui.process_label.set_text(f'{self._cpid} - {exelnk}')
+            self._ui.scanVal_input.grab_focus()
 
     def apply_scan_settings(self, data_type: str, scan_level: int, is_number = True):
         # Tell the scanresult sort function if a numeric cast is needed
@@ -885,7 +870,7 @@ class GameConqueror():
     # perform scanning through backend
     # set GUI if needed
     def do_scan(self):
-        if self._pid == 0:
+        if not self._cpid:
             self._ui.show_error('Please select a process')
             return
         # scan data type
@@ -896,21 +881,24 @@ class GameConqueror():
         scan_level = self.search_scope_scale.get_value()
 
         try:
-            cmd = misc.check_scan_command(data_type, search_val, self.is_first_scan)
+            cmd = misc.check_scan_command(data_type, search_val, self._is_firstRun)
             lvl = int(scan_level) + 1
         except Exception as e:
             # this is not quite good
             self._ui.show_error(e.args[0])
             return
 
-        self.command_lock.acquire()
         # set scan options only when first scan, since this will reset backend
-        if self.is_first_scan:
-            self.is_first_scan = False
-            self.apply_scan_settings(data_type, lvl, is_number)
-        self.is_scanning = True
-        self.scan_thread_func(cmd)
-        self.command_lock.release()
+        if self._is_firstRun:
+            self._is_firstRun = False
+            #self.apply_scan_settings(data_type, lvl, is_number)
+
+        emsg = self.start_scanning(cmd)
+        if  emsg:
+            self._ui.show_error(emsg)
+        else:
+            self.set_ui_deactive()
+            GLib.timeout_add(misc.PROGRESS_WATCH_MS, self.progress_watcher)
 
     def set_ui_deactive(self, active = False):
         # disable the window before perform scanning, such that if result come so fast, we won't mess it up
@@ -924,37 +912,19 @@ class GameConqueror():
         self._ui.scan_button.set_visible(active)
         self._ui.stop_button.set_visible(not active)
 
-    def scan_thread_func(self, cmd: str = None):
-        # Toggle scaning flag
-        GLib.source_remove(self._watch_id)
-        if cmd is not None:
-            self._watch_id = GLib.timeout_add(PROGRESS_INTERVAL, self.progress_watcher,
-                                              priority=GLib.PRIORITY_DEFAULT_IDLE)
-            self.set_ui_deactive(active=False)
-            self.command_send(f'find {cmd}')
-        else:
-            self._watch_id = GLib.timeout_add(DATA_WORKER_INTERVAL, self.data_worker)
-            self.set_ui_deactive(active=True)
-            self._ui.scanVal_input.grab_focus()
-            self.update_scan_result()
+    def update_scan_result(self, m_count: int = 0):
+        self._ui.main_window.set_title(misc.ltr('Found: %d')% m_count)
+        self._ui.scanVal_input.grab_focus()
 
-    def update_scan_result(self):
-
-        info = self.command_send(f'info {self._pid}')
-        self._ui.main_window.set_title(misc.ltr('Found: %d')% info['match_count'])
-
-        if (info['match_count'] > SCAN_RESULT_LIST_LIMIT) or info['is_process_dead']:
-            self._ui.scanRes_list.clear()
-            return
-        return
-        matches = self.command_send(f'list L{MATCH_CNT}', 4096)
+    def reload_list_matches(self):
+        matches = self.send_command(f'list L{MATCH_CNT}', 4096)
 
         self._ui.scanRes_tree.set_model(None)
         # temporarily disable model for scanresult_liststore for the sake of performance
         self._ui.scanRes_list.clear()
 
         while len(matches):
-            if IS_DEBUG:
+            if self.is_debug:
                 print(f'+= parse {len(matches)} matches')
             for m in matches:
                 t   = m['types']
@@ -970,7 +940,7 @@ class GameConqueror():
                 off  = m['off']
                 self._ui.scanRes_list.insert_with_valuesv(-1, [0, 1, 2, 3, 4, 5, 6], [addr, val, t, True, off, rt, mid])
                 # self._ui.scanRes_list.append([addr, val, t, True, off, rt, mid])
-            matches = self.command_send(f'next L{MATCH_CNT}', 4096)
+            matches = self.send_command(f'next L{MATCH_CNT}', 4096)
         self._ui.scanRes_tree.set_model(self._ui.scanRes_list)
 
     # return range(r1, r2) where all rows between r1 and r2 (EXCLUSIVE) are visible
@@ -985,17 +955,17 @@ class GameConqueror():
         return range(r1, r2)
 
     # read/write data periodically
-    def data_worker(self):
+    def process_status_checker(self):
         # non-blocking
-        if self._pid and self.command_lock.acquire(blocking=False):
-            info = self.command_send(f'info {self._pid}')
-            if not info['is_process_dead']:
-                self.refresh_tree(info['match_count'])
-            self.command_lock.release()
-        return not self.exiting_flag
+        if not self._is_scanning and self._cpid:
+            if misc. is_process_dead(self._cpid, self.is_debug):
+                self._cpid = ''
+                self._ui.show_error('Selected process is no longer available')
+                self._ui.scanRes_list.clear()
+        return not self._is_exiting and self._cpid
 
     def refresh_tree(self, new_cnt:int):
-        if self._cnt != new_cnt:
+        if True:
             # Write to memory locked values in cheat list
             for i in self._ui.cheatList_list:
                 if i[0] and i[5]: # locked and valid
@@ -1023,49 +993,39 @@ class GameConqueror():
                     else:
                         row[1] = '??'
                         row[3] = False
-            self._cnt = new_cnt
 
     def read_value(self, addr:str, in_type:str, val:int|str, out_type:str):
         size = misc.get_type_size(in_type, val)
-        buf  = self.read_memory(addr, size)
+        # ----
+        emsg, buf = self.read_memory(addr, size)
+        if emsg:
+            self._ui.show_error(emsg)
+        #----
         return misc.bytes2value(out_type, buf)
-    
-    # addr could be int or str
-    def read_memory(self, addr:str, nb:int):
-        cap = nb * 4 + 16
-
-        self.command_lock.acquire()
-        data = self.command_send(f'dump {addr} {nb}', cap if cap > 1024 else 1024)
-        self.command_lock.release()
-
-        # TODO raise Exception here isn't good
-        if len(data['raw']) != nb:
-            # self._ui.show_error('Cannot access target memory')
-            return None
-        return data['raw']
 
     # addr could be int or str
     def write_value(self, addr:str, typestr:str, value:int|str):
-        self.command_lock.acquire()
-        self.command_send(f'write {typestr} {addr} {value}')
-        self.command_lock.release()
+        data = self.send_command(f'write {typestr} {addr} {value}')
+        if 'error' in data:
+            self._ui.show_error(data['error'])
 
     def exit(self, object, data=None):
-        self.exiting_flag = True
-        self.command_send('exit')
+        self.exit_cleanup()
         Gtk.main_quit()
 
 
 if __name__ == '__main__':
-    # accept connections
-    connect,_ = misc.wait_connection(SOCK_PATH)
+    # Parse parameters
+    pid, dbg = misc.INIT_ARGS.split(';')
+    # Init application
+    gc_instance = GameConqueror( pid, dbg == '1' )
     try:
-        # Init application
-        gc_instance = GameConqueror(connect)
+        # Open socket and wait clients
+        gc_instance.socket_server()
+        # Init user interface
+        gc_instance.create_window()
         # Start
         Gtk.main()
     finally:
-        # close the connection
-        connect.close()
-        # remove the socket file
-        os.unlink(SOCK_PATH)
+        # Close socket
+        gc_instance.close_server()

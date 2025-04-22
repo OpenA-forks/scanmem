@@ -19,11 +19,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import ctypes, os, re, sys, tempfile, socket, time, threading
+import ctypes, os, re, tempfile, socket, json
 
-LIB_PATH = os.environ['SCANMEM_LIBDIR'] # libscanmem.so
-SOC_PATH = os.environ['SCANMEM_SOCKET'] # /tmp/scanmem-X.X~dev-socket
-IS_DEBUG = os.environ['SCANMEM_DEBUG']
+SOCK_PATH = os.environ['SCANMEM_SOCKET'] # /tmp/scanmem-X.X~dev-socket
 
 class Scanmem():
     """Wrapper for libscanmem."""
@@ -40,26 +38,18 @@ class Scanmem():
         'sm_process_is_dead' : (ctypes.c_bool, ctypes.c_int32)
     }
 
-    def __init__(self):
-        self._itr = self._th = None
-        self._lib = self.load_library()
-        self._lib.sm_set_backend()
-        self._lib.sm_init()
-        self.exec_command('reset')
+    def __init__(self, pid = '', debug_mode = False):
+        self._serv : socket.socket = None
+        self._cpid : str = pid
+        # public flags
+        self.is_debug = debug_mode
+        # private flags
+        self._is_firstRun = True
+        self._is_scanning = False
+        self._is_waiting = False
+        self._is_exiting = False # currently for data_worker only, other 'threads' may also use this flag
 
-    def get_version(self):
-        return '{"version":"%s"}'% self._lib.sm_get_version().decode()
-
-    @staticmethod
-    def load_library():
-        lib = ctypes.CDLL(LIB_PATH)
-        for k,v in Scanmem.LIBRARY_FUNCS.items():
-            f = getattr(lib, k)
-            f.restype = v[0]
-            f.argtypes = v[1:]
-        return lib
-
-    def dump_command(self, cmd: str, raw_out=False):
+    def read_memory(self, addr: int, nb: int):
         """
         Execute command using libscanmem.
         This function is NOT thread safe, send only one command at a time.
@@ -67,50 +57,91 @@ class Scanmem():
         cmd: command to run
         raw_out: if True, return in a string what libscanmem would print to stdout
         """
-        with tempfile.TemporaryFile() as directed_file:
-            backup_stdout_fileno = os.dup(sys.stdout.fileno())
-            os.dup2(directed_file.fileno(), sys.stdout.fileno())
+        tmp_name = emsg = ''
 
-            self._lib.sm_backend_exec_cmd(ctypes.c_char_p(cmd.encode()))
+        with tempfile.NamedTemporaryFile(suffix='-dmem') as tmp_file:
+            tmp_name = tmp_file.name
 
-            os.dup2(backup_stdout_fileno, sys.stdout.fileno())
-            os.close(backup_stdout_fileno)
-            directed_file.seek(0)
-            if not raw_out:
-                self._itr = self.gen_match_rows(directed_file.readlines())
-            else:
-                return '{"raw":[%s]}'% ','.join(map(str,directed_file.read()))
+        data = self.send_command('dump %x %i %s' % (addr, nb, tmp_name))
+        mbuf : bytes = None
 
-    def exec_command(self, cmd: str):
-        self._lib.sm_backend_exec_cmd(ctypes.c_char_p(cmd.encode()))
+        if 'error' in data:
+            emsg : str = data['error']
+        elif data['total_readed'] == 0:
+            emsg : str = 'Cannot access target memory'
+        else:
+            with open(tmp_name, mode='rb') as dump_file:
+                ____ = dump_file.seek(0)
+                mbuf = dump_file.read()
+        return (emsg, mbuf)
 
-    def get_match_info(self, cpid: str):
-        pid = ctypes.c_int32(int(cpid))
-        isd = self._lib.sm_process_is_dead(pid)
-        cnt = self._lib.sm_get_num_matches()
-        return '{"found":%d,"is_process_dead":%d}'% (cnt, isd)
+    def send_command(self, cmd: str, cap = 1024):
+        """
+        Sends commands to the backend via UNIX socket and receives JSON objects in response
+
+        """ ; self._serv.sendall(cmd.encode() + b'\0')
+        buf = self._serv.recv(cap)
+        try:
+            dat = json.loads(buf)
+        except Exception as e:
+            cmd = cmd.split(' ',1)[0]
+            dat = dict([ ('error', f'`{cmd}` @ {e} => {buf}') ])
+            pass
+        finally:
+            return dat
+
+    def start_scanning(self, val:int|str):
+        """
+        ------
+
+        """  ; self._is_scanning = True
+        data = self.send_command(f'scan {val}')
+        emsg = ''
+        if 'error' in data:
+            emsg : str = data['error']
+        return (emsg,)
 
     def get_scan_progress(self):
-        pgs = self._lib.sm_get_scan_progress()
-        return '{"scan_progress":%f}'% float(pgs)
+        pgss = 0.0; mcnt = 0
+        data = self.send_command('info')
+        emsg = ''
+        if 'error' in data:
+            emsg : str   = data['error']
+        else:
+            mcnt : int   = data['match_count']
+            pgss : float = data['scan_progress']
+        return (emsg, pgss, mcnt)
 
-    def set_stop_flag(self, stop_flag=True):
+    def stop_scanning(self):
         """
         Sets the flag to interrupt the current scan at the next opportunity
-        """
-        self._lib.sm_set_stop_flag(stop_flag)
+
+        """  ; self._is_scanning = False
+        data = self.send_command('stop')
+        emsg = ''
+        if 'error' in data:
+            emsg : str = data['error']
+        return (emsg,)
 
     def exit_cleanup(self):
         """
         Frees resources allocated by libscanmem, should be called before disposing of this instance
-        """
-        self._lib.sm_cleanup()
-        self._itr = None
 
-    def process_reset(self, cpid: str):
-        self.exec_command('reset')
-        if cpid and int(cpid) > 0:
-            self.exec_command(f'pid {cpid}')
+        """  ; self._is_exiting = True
+        data = self.send_command('exit')
+        if 'error' in data:
+            print('✖︎ ERROR: '+ data['error'])
+
+    def reset_process(self):
+        rcnt = 0
+        data = self.send_command(f'pset {self._cpid}')
+        emsg = link = ''
+        if 'error' in data:
+            emsg : str = data['error']
+        else:
+            rcnt : int = data['regions_count']
+            link : str = data['exelink']
+        return (emsg, rcnt, link)
 
     @staticmethod
     def gen_match_rows(lines: list[bytes]):
@@ -125,24 +156,27 @@ class Scanmem():
             row = line.decode()
             yield (line_templ % line_regex.match(row).groups())
 
-    def extract_rows(self, num: int = 5):
-        rows = []
-        for item in self._itr:
-            rows.append(item)
-            if len(rows) == num:
-                break
-        return ','.join(rows)
+    def load_cheat_list(self, filepath: str):
+        with open(filepath, mode='r') as f:
+            dat = json.load(f)
+            return dat['cheat_list']
 
-    def wrk_scan_matching(self, val: str):
-        self._th = threading.Thread(target=self._lib.sm_backend_exec_cmd,
-                              name='scanmem-worker',
-                              args=(ctypes.c_char_p(val.encode()),))
-        self._th.start()
+    def store_cheat_list(self, filepath: str, cheat_list: list):
+        dat = dict([('cheat_list', [])])
+        for ch in cheat_list:
+            dat['cheat_list'].append({
+                'desc' : ch[1],
+                'addr' : ch[2],
+                'type' : ch[3],
+                'value': ch[4]
+            })
+        with open(filepath, mode='w') as f:
+            json.dump(dat, f)
 
     def switch(self, cmd: str):
         do_exit = not cmd or cmd.startswith('exit')
         res     = ''
-        if IS_DEBUG:
+        if self.is_debug:
             print('Scanmem @ '+ ('cleanup and exit..' if do_exit else f'[{cmd}]'))
         if do_exit:
             self.exit_cleanup()
@@ -169,27 +203,18 @@ class Scanmem():
                 self.exec_command(opt.strip())
         return (res, True)
 
-    def listener(self, connect: socket.socket):
-        loop = True
-        while loop: # receive data from the server
-            data = connect.recv(1024)
-            try:
-                resp, loop = self.switch(data.decode())
-            except Exception as e:
-                resp = '{"error":"%s"}'% e.args[0]
-            finally:
-                # Send a response back to the server
-                connect.sendall(f'[{resp}]'.encode())
+    def socket_server(self):
+        # Create unix socket server for connect scanmem client
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        # Bind the socket to the path
+        server.bind(SOCK_PATH)
+        # Listen for incoming connections
+        server.listen(1)
+        # accept connections
+        self._serv,_ = server.accept()
 
-
-if __name__ == '__main__':
-    # Create unix socket for connect GameConqueror server
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.connect(SOC_PATH)
-    try:
-        backend = Scanmem()
-        backend.listener(client)
-    finally:
-        client.shutdown(socket.SHUT_WR)
-        time.sleep(1)
-        client.close()
+    def close_server(self):
+        # close the connection
+        self._serv.close()
+        # remove the socket file
+        os.unlink(SOCK_PATH)

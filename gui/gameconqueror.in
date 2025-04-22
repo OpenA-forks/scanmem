@@ -10,7 +10,7 @@ BINPATH="@DISTRIB_BINPATH@"
 APPDIR="$DATADIR/$APPNAME"
 SOCKET="/tmp/scanmem-$VERSION-socket"
 PKEXEC=$(command -v "pkexec")
-PROCID=""
+PROCID=
 CONFIG="$HOME/.config/scanmem/$APPNAME.cfg"
 DEBUG=
 NOT_PERMITED=
@@ -62,20 +62,21 @@ pk_exec() {
 }
 
 pk_scanmem() {
-  pk_exec "$BINPATH/scanmem" -ipc="$SOCKET" $PROCID
+  pk_exec "$BINPATH/scanmem" -ipc="$SOCKET"
 }
 
 py_gameconqueror()
 {
-  export SCANMEM_UIGTK="$APPDIR/ui/@UI_GTK_XML@"
+  export SCANMEM_USER_CFG="$CONFIG"
+  export SCANMEM_UI_GTK="$APPDIR/ui/@UI_GTK_XML@"
   export SCANMEM_VERSION="$VERSION"
   export SCANMEM_GETTEXT="$APPNAME"
   export SCANMEM_LOCALEDIR="$DATADIR/locale"
   export SCANMEM_HOMEPAGE="$HOMEURL"
   export SCANMEM_SOCKET="$SOCKET"
-  export SCANMEM_DEBUG="$DEBUG"
+  export SCANMEM_INIT_ARGS="$PROCID;$DEBUG"
 
-  env python3 "$APPDIR/GameConqueror.py" -pid="$PROCID" -cfg="$CONFIG"
+  env python3 "$APPDIR/GameConqueror.py"
 }
 
 if [ -e "$SOCKET" ]; then

@@ -3,6 +3,16 @@
 
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <ctype.h>
+
+#include <sys/stat.h>
+
+#define MIN_LNKBUF_L 32
+#define MAX_LNKBUF_L 256
+#define MAX_RWOBUF_L 512
+#define BAD_SIZE_ERR (size_t)-1
 
 #include "messages.h"
 #include "procmaps.h"
@@ -36,7 +46,7 @@
  * http://lwn.net/Articles/531148/
  */
 
-bool sm_read_procmaps(list_t *regions, pid_t procid, region_scan_level_t scan_level, bool json_msg)
+bool sm_read_procmaps(list_t *regions, pid_t procid, enum region_scan_level scan_lvl, bool json_msg)
 {
 	FILE *maps;
 
@@ -48,11 +58,10 @@ bool sm_read_procmaps(list_t *regions, pid_t procid, region_scan_level_t scan_le
 
 	bool is_exe = false;
 
-# define MAX_LNKBUF_L 256
 # define _RWEC proclnk
 
-	char exename[MAX_LNKBUF_L], linebuf[MAX_LNKBUF_L*2];
-	char binname[MAX_LNKBUF_L], proclnk[MAX_LNKBUF_L/8], *regfile;
+	char exename[MAX_LNKBUF_L], linebuf[MAX_RWOBUF_L];
+	char binname[MAX_LNKBUF_L], proclnk[MIN_LNKBUF_L], *regfile;
 
 	// check if target is valid and region is not null
 	if (!procid || !regions || !(regions->size >= 0))
@@ -74,8 +83,7 @@ bool sm_read_procmaps(list_t *regions, pid_t procid, region_scan_level_t scan_le
 	} else if (!json_msg)
 		SM_Info("maps file located at %s opened", proclnk);
 
-	proclnk[k+0] = 'e', proclnk[k+2] = 'e',
-	proclnk[k+1] = 'x', proclnk[k+3] = '\0';
+	_4_FMT(proclnk, k, "exe");
 
 	// get executable name
 	if((k = readlink(proclnk, exename, sizeof(proclnk))) == -1) {
@@ -96,7 +104,7 @@ bool sm_read_procmaps(list_t *regions, pid_t procid, region_scan_level_t scan_le
 			.filename[0] = '\n' // match end of line if region filepath is empty
 		};
 		// clearing buffer, before write permissions chars
-		_RWEC[0] =_RWEC[1] =_RWEC[2] =_RWEC[3] =_RWEC[4] = '\0';
+		_6_FMT(_RWEC, 0, "\0\0\0\0\0");
 
 		if (sscanf(linebuf, "%lx-%lx %4c %x %x:%x %u %c", &cur_start, &cur_end,
 			_RWEC, &offset, &dev_major, &dev_minor, &inode, mm.filename
@@ -172,13 +180,13 @@ bool sm_read_procmaps(list_t *regions, pid_t procid, region_scan_level_t scan_le
 			else if (!strcmp(regfile, "[stack]"))
 				mm.type = REGION_TYPE_STACK;
 
-			if (scan_level != REGION_ALL && !mm.flags.write)
+			if (scan_lvl != REGION_ALL && !mm.flags.write) 
 			{
 				// Only REGION_ALL scans non-writable memory regions
 				continue;
 			}
 			// determine if this region is useful
-			switch (scan_level) {
+			switch (scan_lvl) {
 			case REGION_ALL:    useful = true; break;
 			case REGION_ALL_RW: useful = true; break;
 			case REGION_HEAP_STACK_EXECUTABLE_BSS:
@@ -243,4 +251,123 @@ bool sm_read_procmaps(list_t *regions, pid_t procid, region_scan_level_t scan_le
 		SM_Message( F_TEXT_MSG("info","%lu %s"), regions->size, lStr("suitable regions found"));
 
 	return !ecode;
+}
+
+
+static size_t dump_mem_to_buf(uint8_t *buf, uintptr_t base_addr, size_t nbytes, int _fd)
+{
+	size_t nread = 0;
+
+	for (ssize_t nr = 0; nread < nbytes; nread += nr) {
+		/**/nr = pread(_fd, &buf[nread], nbytes - nread, base_addr + nread);
+		if (nr == -1) {
+			// we can't read further, report what was read
+			break;
+		}
+	}
+	return nread;
+}
+
+static size_t dump_mem_to_file(const char *filename, uintptr_t base_addr, size_t nbytes, int _fd, bool json_msg)
+{
+	uint8_t buf[MAX_RWOBUF_L];
+	 size_t nread = 0;
+
+	FILE *f_out = fopen(filename, "wb");
+	if ( !f_out ) {
+		SM_Message(json_msg ? "{"F_JSON_STR("error","%s %s")"}" :
+		/* - - - - - - - - - */  F_TEXT_MSG("error","%s %s"), lStr("unable open file for write"), filename);
+		return BAD_SIZE_ERR;
+	} else {
+		for (ssize_t nr = 0; nread < nbytes; nread += nr) {
+			/**/ nr = pread(_fd, buf, L_MIN(nbytes - nread, MAX_RWOBUF_L), base_addr + nread);
+			if ( nr == -1 ) {
+				// we can't read further, report what was read
+				break;
+			} else
+				fwrite(buf, sizeof(uint8_t), nr, f_out);
+		}
+		fclose(f_out);
+	}
+	return nread;
+}
+
+static size_t dump_mem_to_stdout(uintptr_t base_addr, size_t nbytes, int _fd)
+{
+	char buf[MAX_RWOBUF_L], fmt[8] = "\0\0\0\0\0\0\0";
+	size_t nread = 0;
+
+	for (ssize_t j, i, nr = 0; nread < nbytes; nread += nr) {
+		/**/ nr = pread(_fd, buf, L_MIN(nbytes - nread, MAX_RWOBUF_L), base_addr + nread);
+		if ( nr == -1 ) {
+			// we can't read further, report what was read
+			break;
+		}
+		for (i = 0; i < nr; i += 16) {
+			// format addres `4df56e:`
+			_8_FMT(fmt, 0, "%lx:   ");
+			printf(fmt, base_addr+i);
+			// ->
+			for (j = 0; j < 16; j++) {
+				// format bytes `1F 20 --`
+				if ((i + j) < nr)
+					_6_FMT(fmt, 0, "%02X ");
+				else
+					_6_FMT(fmt, 0, "%c- \0");
+				printf(fmt, (i + j) < nr ? (uint8_t)buf[i+j] : '-' );
+			}
+			// prepares for start ascii section
+			if ((i + 1) >= nr)
+				_6_FMT(fmt, 0, "  %c\n");
+			else
+				_6_FMT(fmt, 0, "  %c\0");
+			// ->
+			for (j = 0; j < 16 && (i + j) < nr; j++) {
+				// format chars `..A..&.`
+				printf(fmt, isprint(buf[i+j]) ? buf[i+j] : '.');
+				// prepares for the next (possible last) char
+				if ((j + 2) >= 16 || (i + j + 2) >= nr)
+					_4_FMT(fmt, 0, "%c\n");
+				else
+					_4_FMT(fmt, 0, "%c\0");
+			}
+		}
+	}
+	return nread;
+}
+
+bool sm_read_procmem(void *out, pid_t procid, enum memdump_out_type out_type, uintptr_t base_addr, size_t nbytes, bool json_msg)
+{
+	char proclnk[MIN_LNKBUF_L];
+
+	if (out == NULL && out_type != MEMDUMP_TO_STDOUT)
+		return false;
+
+	snprintf(proclnk, sizeof(proclnk), "/proc/%d/mem", procid);
+	// open the `/proc/<pid>/mem` for read only
+	int r_fd = open(proclnk, O_RDONLY);
+	if (r_fd == -1) {
+		SM_Message(json_msg ? "{"F_JSON_STR("error","%s %s")"}" :
+		/* - - - - - - - - - */  F_TEXT_MSG("error","%s %s"), lStr("unable to open"), proclnk);
+		return false;
+	}
+	else switch (out_type) {
+		case MEMDUMP_TO_STDOUT:
+			nbytes = dump_mem_to_stdout(base_addr, nbytes, r_fd);
+			break;
+		case MEMDUMP_TO_BUFFER:
+			nbytes = dump_mem_to_buf(out, base_addr, nbytes, r_fd);
+			break;
+		case MEMDUMP_TO_FILE:
+			nbytes = dump_mem_to_file(out, base_addr, nbytes, r_fd, json_msg);
+			break;
+	}
+	close(r_fd);
+
+	if (nbytes != BAD_SIZE_ERR) {
+		SM_Message(json_msg ? "{"F_JSON_NUM("total_readed","%lu")"}" :
+		/* - - - - - - - - - */  F_TEXT_MSG("info","%lu bytes read"), nbytes);
+		return true;
+	}
+	return false;
 }

@@ -30,6 +30,19 @@
 # define F_JSON_NUM(_A,_F) "\""_A"\":"   _F 
 # define F_JSON_STR(_A,_F) "\""_A"\":\"" _F "\""
 
+# define L_MIN(_A,_B) (_A)>=(_B)?(_B):(_A)
+# define L_MAX(_A,_B) (_A)>=(_B)?(_A):(_B)
+
+# define _4_FMT(_F,_i,_S) _F[_i+0]=(_S)[0],_F[_i+1]=(_S)[1],_F[_i+2]=(_S)[2],_F[_i+3]=(_S)[3]
+# define _6_FMT(_F,_i,_S) _4_FMT(_F,_i,_S),_F[_i+4]=(_S)[4],_F[_i+5]=(_S)[5]
+# define _8_FMT(_F,_i,_S) _6_FMT(_F,_i,_S),_F[_i+6]=(_S)[6],_F[_i+7]=(_S)[7]
+
+# define _CMP_4(_B,_i,_S) (_B[_i+0]==(_S)[0]&&_B[_i+1]==(_S)[1]&&_B[_i+2]==(_S)[2]&&_B[_i+3]==(_S)[3])
+# define _CMP_5(_B,_i,_S) (_CMP_4(_B,_i,_S) &&_B[_i+4]==(_S)[4])
+# define _CMP_6(_B,_i,_S) (_CMP_5(_B,_i,_S) &&_B[_i+5]==(_S)[5])
+# define _CMP_7(_B,_i,_S) (_CMP_6(_B,_i,_S) &&_B[_i+6]==(_S)[6])
+# define _CMP_8(_B,_i,_S) (_CMP_7(_B,_i,_S) &&_B[_i+7]==(_S)[7])
+
 void sm_message(const char *fmt, ...);
 
 #endif // _MESSAGES_H

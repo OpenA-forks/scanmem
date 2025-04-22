@@ -47,6 +47,12 @@ enum region_type {
 	REGION_TYPE_STACK
 };
 
+enum memdump_out_type {
+	MEMDUMP_TO_STDOUT,
+	MEMDUMP_TO_BUFFER,
+	MEMDUMP_TO_FILE
+};
+
 typedef unsigned char region_scan_level_t;
 typedef unsigned char region_type_t;
 
@@ -64,6 +70,14 @@ typedef struct {
 	char filename[1]; // associated file, must be last
 } region_t;
 
-bool sm_read_procmaps(list_t *regions, pid_t procid, region_scan_level_t scan_level, bool json_msg);
+bool sm_read_procmaps(list_t *regions, pid_t procid, enum region_scan_level scan_lvl, bool json_msg);
+
+/**
+ * reads bytes from `proc/{pid}/mem` and writes to out.
+ *
+ * @param out       can be memory allocated buffer, or just a string with a filepath
+ * @param out_type  defines that kind of `out` is
+ */
+bool sm_read_procmem(void *out, pid_t procid, enum memdump_out_type out_type, uintptr_t base_addr, size_t nbytes, bool json_msg);
 
 #endif
