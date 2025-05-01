@@ -339,10 +339,17 @@ static size_t dump_mem_to_stdout(uintptr_t base_addr, size_t nbytes, int _fd)
 bool sm_read_procmem(void *out, pid_t procid, enum memdump_out_type out_type, uintptr_t base_addr, size_t nbytes, bool json_msg)
 {
 	char proclnk[MIN_LNKBUF_L];
-
-	if (out == NULL && out_type != MEMDUMP_TO_STDOUT)
+	// check if out ptr is valid 
+	if (out_type == MEMDUMP_TO_BUFFER && out == NULL) {
+		SM_Message(json_msg ? "{"F_JSON_STR("error","%s")"}" :
+		/* - - - - - - - - - */  F_TEXT_MSG("error","%s"), lStr("output buffer is nullptr"));
 		return false;
-
+	} else
+	if (out_type == MEMDUMP_TO_FILE && (out == NULL || ((const char*)out)[0] == '\0')) {
+		SM_Message(json_msg ? "{"F_JSON_STR("error","%s")"}" :
+		/* - - - - - - - - - */  F_TEXT_MSG("error","%s"), lStr("output filename is empty string"));
+		return false;
+	}
 	snprintf(proclnk, sizeof(proclnk), "/proc/%d/mem", procid);
 	// open the `/proc/<pid>/mem` for read only
 	int r_fd = open(proclnk, O_RDONLY);

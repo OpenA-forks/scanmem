@@ -162,24 +162,24 @@ static inline void s_cmd_dump_memory(globals_t *vars, const char *cmd)
 {
 	uintptr_t addr = 0;
 	size_t nb = 0;
-	char c = '\0';
+	int n = 0;
 
-	if (3 == sscanf(cmd, "dump %lx %lu %c", &addr, &nb, &c)) {
-		sm_read_procmem(strchr(cmd, c),
+	if (2 == sscanf(cmd, "dump %lx %lu %n", &addr, &nb, &n)) {
+		sm_read_procmem((void*)&cmd[n],
 			vars->target, MEMDUMP_TO_FILE, addr, nb, true );
 	} else
-		SM_Message("{"F_JSON_NUM("error","%s [%s]")"}", lStr("invalid arguments"), cmd);
+		SM_Message("{"F_JSON_STR("error","%s [%s]")"}", lStr("invalid arguments"), cmd);
 }
 
 static inline void s_cmd_reset_process(globals_t *vars, const char *cmd)
 {
+	region_scan_level_t r = REGION_ALL;
 	pid_t pid = 0;
 
-	if (1 == sscanf(cmd, "pset %i", &pid) && pid > 0) {
+	if (2 == sscanf(cmd, "rset [%hhu] %i", &r, &pid)) {
 		vars->target = pid;
-	} else {
-		pid = vars->target;
 	}
+	vars->options.region_scan_level = r;
 	sm_reset_process(vars);
 }
 
@@ -211,7 +211,7 @@ static int iter_sock_loop(globals_t *vars, const int ipc_fd)
 		loop.ipos = 0;
 
 		/*--*/ if (_CMP_4(loop.buf, 0, "exit")) { loop.quit = true;
-		} else if (_CMP_4(loop.buf, 0, "pset")) { loop.ipos = 2; s_cmd_reset_process(vars, loop.buf);
+		} else if (_CMP_4(loop.buf, 0, "rset")) { loop.ipos = 2; s_cmd_reset_process(vars, loop.buf);
 		} else if (_CMP_4(loop.buf, 0, "dump")) { loop.ipos = 2; s_cmd_dump_memory  (vars, loop.buf);
 		} else if (_CMP_4(loop.buf, 0, "list")) {
 		} else if (_CMP_4(loop.buf, 0, "info")) { loop.ipos = 2; s_cmd_info_scanning(vars);

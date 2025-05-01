@@ -19,30 +19,26 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import ctypes, os, re, tempfile, socket, json
+import os, re, tempfile, socket, json
 
 SOCK_PATH = os.environ['SCANMEM_SOCKET'] # /tmp/scanmem-X.X~dev-socket
 
+FIND_MATCH = ['eq', 'lt', 'gt', 'ne', 'le', 'ge', 'ic', 'dc']
+TYPE_NAMES = ['i8', 'i16', 'i32', 'i64', 'f32', 'f64', 'str', 'a8u']
+TYPE_SIZES = [1, 2, 4, 8, 4, 8, 0, 0]
+
 class Scanmem():
     """Wrapper for libscanmem."""
-    
-    LIBRARY_FUNCS = {
-        'sm_init' : (ctypes.c_bool, ),
-        'sm_cleanup' : (None, ),
-        'sm_set_backend' : (None, ),
-        'sm_backend_exec_cmd' : (None, ctypes.c_char_p),
-        'sm_get_num_matches' : (ctypes.c_ulong, ),
-        'sm_get_version' : (ctypes.c_char_p, ),
-        'sm_get_scan_progress' : (ctypes.c_double, ),
-        'sm_set_stop_flag' : (None, ctypes.c_bool),
-        'sm_process_is_dead' : (ctypes.c_bool, ctypes.c_int32)
-    }
 
     def __init__(self, pid = '', debug_mode = False):
         self._serv : socket.socket = None
         self._cpid : str = pid
         # public flags
-        self.is_debug = debug_mode
+        self.is_debug  : bool = debug_mode
+        self.num_signed: bool = True
+        self.match_type: int  = 0 # equal
+        self.scan_scope: int  = 1 # Normal
+        self.scan_type : int  = 2 # Int32
         # private flags
         self._is_firstRun = True
         self._is_scanning = False
@@ -73,7 +69,7 @@ class Scanmem():
             with open(tmp_name, mode='rb') as dump_file:
                 ____ = dump_file.seek(0)
                 mbuf = dump_file.read()
-        return (emsg, mbuf)
+        return (mbuf, emsg)
 
     def send_command(self, cmd: str, cap = 1024):
         """
@@ -90,16 +86,16 @@ class Scanmem():
         finally:
             return dat
 
-    def start_scanning(self, val:int|str):
+    def start_scanning(self, val: int|str):
         """
         ------
 
         """  ; self._is_scanning = True
-        data = self.send_command(f'scan {val}')
+        data = self.send_command(f'find {FIND_MATCH[self.match_type]}:{TYPE_NAMES[self.scan_type]} {val}')
         emsg = ''
         if 'error' in data:
             emsg : str = data['error']
-        return (emsg,)
+        return (not self._is_firstRun, emsg)
 
     def get_scan_progress(self):
         pgss = 0.0; mcnt = 0
@@ -121,7 +117,7 @@ class Scanmem():
         emsg = ''
         if 'error' in data:
             emsg : str = data['error']
-        return (emsg,)
+        return (not self._is_firstRun, emsg)
 
     def exit_cleanup(self):
         """
@@ -134,7 +130,7 @@ class Scanmem():
 
     def reset_process(self):
         rcnt = 0
-        data = self.send_command(f'pset {self._cpid}')
+        data = self.send_command(f'rset [{self.scan_scope + 1}] {self._cpid}')
         emsg = link = ''
         if 'error' in data:
             emsg : str = data['error']
@@ -143,18 +139,30 @@ class Scanmem():
             link : str = data['exelink']
         return (emsg, rcnt, link)
 
-    @staticmethod
-    def gen_match_rows(lines: list[bytes]):
+    def get_list_matches(self, count: int):
         """
         Returns a generator of (match_id_str, addr_str, off_str, region_type, value, types_str) for each match, all strings.
         The function executes commands internally, it is NOT thread safe
         """
         line_templ = '{"match_id":%s,"addr":"%s","off":"%s","region_type":"%s","value":%s,"types":"%s"}'
         line_regex = re.compile(r'^\[ *(\d+)\] +([\da-f]+), +\d+ \+ +([\da-f]+), +(\w+), (.*), +\[([\w ]+)\]$')
+        name_templ = emsg = ''
 
-        for line in lines:
-            row = line.decode()
-            yield (line_templ % line_regex.match(row).groups())
+        with tempfile.NamedTemporaryFile(suffix='-mlist') as tmp_file:
+            name_templ = tmp_file.name
+
+        data = self.send_command(f'list {count} {name_templ}')
+        mlst = []
+
+        if 'error' in data:
+            emsg : str = data['error']
+        else:
+            with open(name_templ, mode='r') as templ_file:
+                ______ = templ_file.seek(0)
+                for m in templ_file.readlines():
+                    m = line_templ % line_regex.match(m).groups()
+                    mlst.append(json.loads(m))
+        return (mlst, emsg)
 
     def load_cheat_list(self, filepath: str):
         with open(filepath, mode='r') as f:

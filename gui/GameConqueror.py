@@ -21,11 +21,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import scanmem, misc, gi
+import scanmem, misc, gi, ctypes
 # check toolkit version
 gi.require_version('Gtk', '3.0')
 # import Gtk libraries
-from gi.repository import Gtk, Gdk, GObject, GLib
+from gi.repository import Gtk, Gdk, GLib
 
 from hexview import HexView
 
@@ -37,19 +37,25 @@ class GcUI(Gtk.Builder):
         super(GcUI, self).__init__()
 
         self.set_translation_domain(misc.DOMAIN_TRS)
-        self.add_from_file(misc.UI_GTK_XML)
+        self.add_from_file(misc.get_ui_xml_path('gtk'))
 
         self.    main_window = self.get_object('MainWindow')
         self.  mmedit_window = self.get_object('MemoryEditor_Window')
-        self.procList_dialog = self.get_object('ProcessListDialog')
-        self.addCheat_dialog = self.get_object('AddCheatDialog')
-        self.   about_dialog = self.get_object('AboutDialog')
+        self.addChAddr_input = self.get_object('AddCheatAddr_Input')
+        self.addChDesc_input = self.get_object('AddCheatDesc_Input')
+        self.addChType_vsel  = self.get_object('AddCheatType_Select')
+        self.addChSize_numin = self.get_object('AddCheatSize_NumInput')
+        self.scanScope_range = self.get_object('SearchScope_Range')
+        self.scanDataT_vsel  = self.get_object('ScanDataType_Select')
+        self.scanMatchT_vsel = self.get_object('ScanMatchType_Select')
+        self.signIntVal_chbx = self.get_object('SignedIntType_Checkbox')
         self. process_label  = self.get_object('Process_Label')
         self.procFiltr_input = self.get_object('ProcessFilter_Input')
         self.userFiltr_input = self.get_object('UserFilter_Input')
         self.  scanVal_input = self.get_object('Value_Input')
         self.    scan_button = self.get_object('Scan_Button')
-        self.    stop_button = self.get_object('Stop_Button')
+        self.    proc_button = self.get_object('SelectProcess_Button')
+        self.   cheat_button = self.get_object('AddCheat_Button')
         self.   reset_button = self.get_object('Reset_Button')
         self.   scan_options = self.get_object('ScanOption_Frame')
         self.   scan_progbar = self.get_object('ScanProgress_ProgressBar')
@@ -58,9 +64,21 @@ class GcUI(Gtk.Builder):
         self.cheatList_tree  = self.get_object('CheatList_TreeView')
         self. procList_tree  = self.get_object('ProcessList_TreeView')
 
-        # set version
-        self.about_dialog.set_version(misc.SM_VERSION)
-        self.about_dialog.set_website(misc.SM_HOMEURL)
+        # make processes tree
+        col1_bg = [('foreground-rgba', Gdk.RGBA(1.0,1.0,1.0,0.6)),
+                   ('background-rgba', Gdk.RGBA(0.0,0.0,0.0,0.3))]
+        # Set scan data type
+        data_r  = ([f' {misc.SCAN_VALUE_TYPES[i]} ', f' ﹝{misc.ltr(misc.SCAN_VALUE_TOOLTIP[i])}﹞'] for i in range(9))
+        cheat_r = ([f' {scanmem.TYPE_NAMES[i]} '   , f' :  {misc.ltr(misc.CHEAT_LIST_TOOLTIP[i])}'] for i in range(8))
+        match_r = ([f'  {misc.SCAN_MATCH_TYPES[i]}', f' ∙ {misc.ltr(misc.SCAN_MATCH_TOOLTIP[i])}'] for i in range(8))
+        # add selectable items
+        GcUI.combobox_add_active_item(self.scanDataT_vsel , data_r , props=[ [('family', 'monospace')], col1_bg ])
+        GcUI.combobox_add_active_item(self.addChType_vsel , cheat_r, props=[ [('family', 'monospace')], col1_bg ])
+        GcUI.combobox_add_active_item(self.scanMatchT_vsel, match_r, props=[ [('size-points', 13.0)]  , col1_bg ])
+        # add dialog handlers for default buttos
+        for dialog in [
+            self.get_object('ValueInputHelp_Button'),
+            self.get_object('About_Logo') ]: dialog.connect('clicked', self.on_ShowDialog_handler)
         # deferred creation
         self. mmedit_hexview : HexView = None
         # init ScanResult @ columns:      addr, value, type, valid, offset, region, match_id
@@ -97,6 +115,8 @@ class GcUI(Gtk.Builder):
         GcUI.treeview_append_column(self.procList_tree, 'User'   , 1, attributes=[('text',1)])
         GcUI.treeview_append_column(self.procList_tree, 'Process', 2, attributes=[('text',2)])
         # Init signals
+        self.signIntVal_chbx.connect('toggled', self.on_SignToggle_handler)
+        self.addChType_vsel .connect('changed', self.on_CheatType_handler)
         self.procFiltr_input.connect('changed', self.on_TextInput_handler)
         self.userFiltr_input.connect('changed', self.on_TextInput_handler)
         self.    main_window.connect('key-press-event', self.on_WinKey_handler)
@@ -118,6 +138,29 @@ class GcUI(Gtk.Builder):
         uFiltxt = self.userFiltr_input.get_text()
         return proc and pFiltxt.lower() in proc.lower() and\
                user and uFiltxt.lower() in user.lower()
+
+    def on_CheatType_handler(self, sbox: Gtk.ComboBox, data=None):
+        size = scanmem.TYPE_SIZES[ sbox.get_active() ]
+        self.addChSize_numin.set_value(size)
+        self.addChSize_numin.set_sensitive(size == 0)
+
+    def on_SignToggle_handler(self, chx: Gtk.CheckButton, data=None):
+        sign  = chx.get_active() 
+        store = self.scanDataT_vsel.get_model()
+        iter  = store.get_iter_first()
+        idx   = 0
+        while idx <= misc.SCAN_VALUE_TYPES.index('Int64') and iter:
+            val = misc.SCAN_VALUE_TYPES[idx]
+            store.set_value(iter, 0, (f' U{val.lower()}' if not sign else f' {val}'))
+            iter = store.iter_next(iter); idx += 1
+
+    def on_ShowDialog_handler(self, btn: Gtk.Button, on_OK_handler=lambda:False):
+        btn_id : str = Gtk.Buildable.get_name(btn)
+        idx_ri : int = btn_id.index('_')
+        dialog = self.get_object(f'{btn_id[0:idx_ri]}_Dialog')
+        while dialog.run() == Gtk.ResponseType.OK and on_OK_handler():
+            continue
+        dialog.hide()
 
     def on_WinKey_handler(self, win, event, data=None):
         key  = Gdk.keyval_name(event.keyval)
@@ -226,14 +269,26 @@ class GcUI(Gtk.Builder):
 
     @staticmethod
     # set active item of the `combobox` such that the value at `col` is `name`
-    def combobox_set_active_item(combobox, name, col=0):
-        model = combobox.get_model()
-        iter = model.get_iter_first()
-        while model.get_value(iter, col) != name:
-            iter = model.iter_next(iter)
-        if iter is None:
-            raise ValueError(f'Cannot locate item: {name}')
-        combobox.set_active_iter(iter)
+    def combobox_add_active_item(cmbox: Gtk.ComboBox,
+                                 rows: tuple[list],
+                                 props: list = None,
+                                 templ_cols = [str, str]):
+        # create the new model and set the columns type
+        model_type = Gtk.ListStore()
+        model_type.set_column_types(templ_cols)
+        # adds the user text rows
+        for row in rows:
+            model_type.append(row)
+        # apply model for combo-box
+        cmbox.set_model(model_type)
+        # create renderer for each column with individual style
+        for i in range(len(templ_cols)):
+            cell = Gtk.CellRendererText()
+            if props and i < len(props) and props[i]:
+                for key,val in props[i]:
+                    cell.set_property(key, val)
+            cmbox.pack_start(cell, True)
+            cmbox.add_attribute(cell, "text", i)
 
     @staticmethod
     # format number in base16 (callback for TreeView)
@@ -260,13 +315,8 @@ class GcUI(Gtk.Builder):
 
 class GameConqueror(scanmem.Scanmem):
 
-    def __init__(self, pid: str, dbg: bool):
-        super(GameConqueror, self).__init__(pid,dbg)
-
-        self.lock_data_type = 'int32'
-        self.scan_data_type = 'int32'
-        self.search_scope   = 1 # normal
-
+    def __init__(self, args: tuple):
+        super(GameConqueror, self).__init__(*args)
         ###########################
         # init others (backend, flag...)
         self._exec: str  = ''
@@ -288,19 +338,12 @@ class GameConqueror(scanmem.Scanmem):
         # init GUI
         gcui = self._ui = GcUI()
 
-        ###
-        # Set scan data type
-        self.scan_data_type_combobox = gcui.get_object('ScanDataType_ComboBoxText')
-        for entry in misc.SCAN_VALUE_TYPES:
-            self.scan_data_type_combobox.append_text(entry)
         # apply setting
-        GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
-
-        ###
-        # set search scope
-        self.search_scope_scale = gcui.get_object('SearchScope_Scale')
-        # apply setting
-        self.search_scope_scale.set_value(self.search_scope)
+        gcui.scanMatchT_vsel.set_active(self.match_type)
+        gcui.scanDataT_vsel .set_active(self.scan_type)
+        gcui.scanScope_range.set_value (self.scan_scope)
+        gcui.signIntVal_chbx.set_active(True)
+        gcui.addChType_vsel .set_active(scanmem.TYPE_NAMES.index('i32'))
         # ---
         model_cheatCombo_type = Gtk.ListStore(str)
         # CheatList active flag
@@ -346,19 +389,14 @@ class GameConqueror(scanmem.Scanmem):
         gcui.cheatList_tree.connect('key-press-event', self.on_KeyPress_handler)
         gcui.scanRes_tree  .connect('key-press-event', self.on_KeyPress_handler)
         # get list of things to be disabled during scan
-        gcui.get_object('SelectProcess_Button').connect('clicked', self.do_ListProcess_Select)
-        # init AddCheatDialog
-        self.addcheat_address_input     = gcui.get_object('Address_Input')
-        self.addcheat_description_input = gcui.get_object('Description_Input')
-        self.addcheat_length_spinbutton = gcui.get_object('Length_SpinButton')
-
-        self.addcheat_type_combobox = gcui.get_object('Type_ComboBoxText')
-        for entry in misc.MEMORY_TYPES:
-            self.addcheat_type_combobox.append_text(entry)
+        gcui. proc_button.connect('clicked', self.on_ProcessList_Open)
+        gcui. scan_button.connect('clicked', self.on_ScanProgress_Toggle)
+        gcui.cheat_button.connect('clicked', self.on_AddCheat_Open)
+        # init AddCheat Types
+        for entry in scanmem.TYPE_NAMES:
             model_cheatCombo_type.append([entry])
-        GcUI.combobox_set_active_item(self.addcheat_type_combobox, self.lock_data_type)
-        self.Type_ComboBoxText_changed_cb(self.addcheat_type_combobox)
-
+        # other handlers
+        gcui.scanScope_range.connect('format-value', self.SearchScope_format_handler)
         # init popup menu for scanresult
         self.scanresult_popup = GcUI.new_popup_menu(gcui.scanRes_tree, [
             ('Add to cheat list'    , self.do_CheatList_Add),
@@ -404,37 +442,34 @@ class GameConqueror(scanmem.Scanmem):
 
     # Manually add cheat
 
-    def ConfirmAddCheat_Button_clicked_cb(self, button, data=None):
-        addr = self.addcheat_address_input.get_text()
+    def confirm_add_cheat(self):
+        # load input values
+        addr : str = self._ui.addChAddr_input.get_text()
+        desc : str = self._ui.addChDesc_input.get_text()
+        size : int = self._ui.addChSize_numin.get_value_as_int()
+        t    : int = self._ui.addChType_vsel .get_active()
         try:
-            addr = int(addr, 16)
-            addr = GObject.Value(GObject.TYPE_UINT64, addr)
-        except (ValueError, OverflowError):
+            if int(addr, 16) <= 0:
+                raise
+        except:
             self._ui.show_error('Please enter a valid address.')
-            return False
+            return True
+        # ---
+        type = scanmem.TYPE_NAMES[t]
+        val  = '' 
+        match type[0]:
+            case 'i': val = '0'
+            case 'f': val = '0.0'
+            case 's': val = ' ' * size
+            case 'a': val = '00 ' * size
+        # add to list
+        self._ui.cheatList_list.append([False, desc, addr, type, val, True])
+        return False
 
-        descript = self.addcheat_description_input.get_text() or 'No Description'
-        typestr = self.addcheat_type_combobox.get_active_text()
-        length = self.addcheat_length_spinbutton.get_value_as_int()
-        if 'int' in typestr: value = 0
-        elif 'float' in typestr: value = 0.0
-        elif typestr == 'string': value = ' ' * length
-        elif typestr == 'bytearray': value = '00 ' * length
-        else: value = None
-
-        self.add_to_cheat_list(addr, value, typestr, descript)
-        self._ui.addCheat_dialog.hide()
-        return True
-
-    def CloseAddCheat_Button_clicked_cb(self, button, data=None):
-        self._ui.addCheat_dialog.hide()
-        return True
+    def on_AddCheat_Open(self, btn: Gtk.Button, data=None):
+        return self._ui.on_ShowDialog_handler(btn, self.confirm_add_cheat)
 
     # Main window
-
-    def ManuallyAddCheat_Button_clicked_cb(self, button, data=None):
-        self._ui.addCheat_dialog.show()
-        return True
 
     def RemoveAllCheat_Button_clicked_cb(self, button, data=None):
         self._ui.cheatList_list.clear()
@@ -448,8 +483,9 @@ class GameConqueror(scanmem.Scanmem):
         self._ui.open_file_dialog('Save CheatList As', self.write_cheat_list, True)
         return True
 
-    def SearchScope_Scale_format_value_cb(self, scale, value, data=None):
-        return misc.SEARCH_SCOPE_NAMES[int(value)]
+    def SearchScope_format_handler(self, el: Gtk.Scale, scale: ctypes.c_double, data=None):
+        self.search_scope = int(scale)
+        return misc.SEARCH_SCOPE_NAMES[self.search_scope]
 
     def ScanResult_TreeView_popup_menu_cb(self, widget, data=None):
         pathlist = self._ui.scanRes_tree.get_selection().get_selected_rows()[1]
@@ -488,42 +524,37 @@ class GameConqueror(scanmem.Scanmem):
             return True
         return False
 
-    def Scan_Button_clicked_cb(self, button, data=None):
-        self.do_scan()
-        return True
-
-    def Stop_Button_clicked_cb(self, button, data=None):
-        emsg = self.stop_scanning()
-        if emsg:
-            self._ui.show_error(emsg)
+    def on_ScanProgress_Toggle(self, btn: Gtk.Button, data=None):
+        if btn.get_label() != '⛔':
+            self.scan_start()
+        else:
+            _, emsg = self.stop_scanning()
+            if emsg:
+                self._ui.show_error(emsg)
         return True
 
     def Reset_Button_clicked_cb(self, button, data=None):
         self.reset_scan()
         return True
 
-    def Logo_EventBox_button_release_event_cb(self, widget, data=None):
-        self._ui.about_dialog.run()
-        self._ui.about_dialog.hide()
-        return True
+    def on_ProcessList_Open(self, btn: Gtk.Button, data=None):
+        proc_list = self._ui.procList_list
+        proc_list.clear()
+        for plist in misc.get_process_list():
+            proc_list.append(plist)
+        return self._ui.on_ShowDialog_handler(btn, self.check_selected_process)
 
     # Process list
-    def do_ListProcess_Select(self, trigger=None):
-        self._ui.procList_dialog.show()
-        if trigger is not None:
-            self._ui.procList_list.clear()
-            for plist in misc.get_process_list():
-                self._ui.procList_list.append(plist)
-        if self._ui.procList_dialog.run() == Gtk.ResponseType.OK: # -5
-            lstor, iter = self._ui.procList_tree.get_selection().get_selected()
-            if iter is None:
-                self._ui.show_error('Please select a process')
-                self.do_ListProcess_Select()
-            else:
-                pid, proc = lstor.get(iter, 0, 2)
+    def check_selected_process(self):
+        lstr, iter = self._ui.procList_tree.get_selection().get_selected()
+        pid , proc = lstr.get(iter, 0, 2) if iter else ('','')
+        if not pid:
+            self._ui.show_error('Please select a process')
+        else:
+            if self._wtid:
                 GLib.source_remove(self._wtid)
-                self.select_process(pid, proc)
-        self._ui.procList_dialog.hide()
+            self.select_process(pid, proc)
+        return not pid
 
     #######################
     # customed callbacks
@@ -541,7 +572,7 @@ class GameConqueror(scanmem.Scanmem):
         addr = int(self._ui.mmedit_hexview.base_addr)
         size = len(self._ui.mmedit_hexview.payload)
         old_addr = self._ui.mmedit_hexview.get_current_addr()
-        emsg,buf = self.read_memory(addr, size)
+        buf,emsg = self.read_memory(addr, size)
         # ----
         if emsg:
             self._ui.show_error(emsg)
@@ -554,17 +585,9 @@ class GameConqueror(scanmem.Scanmem):
 
     # Manually add cheat
 
-    def focus_on_next_widget_cb(self, widget, data=None):
+    def on_next_widget_focus(self, widget, data=None):
         widget.get_toplevel().child_focus(Gtk.DirectionType.TAB_FORWARD)
         return True
-
-    def Type_ComboBoxText_changed_cb(self, combo_box):
-        data_type = combo_box.get_active_text()
-        if data_type in misc.TYPESIZES_G2S:
-            self.addcheat_length_spinbutton.set_value(misc.TYPESIZES_G2S[data_type][0])
-            self.addcheat_length_spinbutton.set_sensitive(False)
-        else:
-            self.addcheat_length_spinbutton.set_sensitive(True)
 
     # Main window
 
@@ -592,11 +615,15 @@ class GameConqueror(scanmem.Scanmem):
         lstor, plist = ltree.get_selection().get_selected_rows()
         hexx = '%#x' % lstor.get_value(lstor.get_iter(plist[0]), 0)
         self.reset_scan()
-        self.scan_data_type = 'int32'
+        self.scan_type = 2
         self._ui.scanVal_input.set_text(hexx)
-        GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_data_type)
-        self.do_scan()
-        return True
+        GcUI.combobox_set_active_item(self.scan_data_type_combobox, self.scan_type)
+        self.scan_start()
+
+    def on_MatchType_Select(self, item: Gtk.MenuItem, ltree=None):
+        m = item.get_label()
+        self.match_type = misc.SCAN_MATCH_TYPES.index(m)
+        self._ui.scanMatchT_vsel.set_label(m)
 
     def on_PopupMenu_Browse(self, mitem, ltree):
         lstor, plist = ltree.get_selection().get_selected_rows()
@@ -634,7 +661,7 @@ class GameConqueror(scanmem.Scanmem):
             if target is scanres_tv:
                 self.do_CheatList_Add(tree=target)
             elif target is scanval_in:
-                self.do_scan()
+                self.scan_start()
 
     def cheatlist_toggle_lock(self, row):
         if self._ui.cheatList_list[row][5]: # valid
@@ -774,8 +801,8 @@ class GameConqueror(scanmem.Scanmem):
         start_addr = max(addr - misc.HEXEDIT_SPAN_MAX, selected_region['start_addr'])
         end_addr   = min(addr + misc.HEXEDIT_SPAN_MAX, selected_region['end_addr'])
         # ----
-        emsg, buf  = self.read_memory(start_addr, end_addr - start_addr)
-        if emsg:
+        buf,emsg   = self.read_memory(start_addr, end_addr - start_addr)
+        if  emsg:
             self._ui.show_error(emsg)
         # ----
         if buf != None:
@@ -859,17 +886,19 @@ class GameConqueror(scanmem.Scanmem):
             self._ui.process_label.set_text(f'{self._cpid} - {exelnk}')
             self._ui.scanVal_input.grab_focus()
 
-    def apply_scan_settings(self, data_type: str, scan_level: int, is_number = True):
+    def apply_scan_settings(self, data_type: str, is_number = True):
         # Tell the scanresult sort function if a numeric cast is needed
         self._ui.scanRes_list.set_sort_func(1, GcUI.treeview_sort_cmp, (1, is_number))
         # search scope
-        self.command_send(f'option scan_data_type {data_type}\n option region_scan_level {scan_level}')
-        # TODO: ugly, reset to make region_scan_level taking effect
-        self.command_send('reset')
+        emsg, rcount, exelnk = self.reset_process()
+        if not emsg:
+            self._exec = exelnk
+            self._nreg = rcount
+        return emsg
 
     # perform scanning through backend
     # set GUI if needed
-    def do_scan(self):
+    def scan_start(self):
         if not self._cpid:
             self._ui.show_error('Please select a process')
             return
@@ -878,11 +907,9 @@ class GameConqueror(scanmem.Scanmem):
         data_type = self.scan_data_type_combobox.get_active_text()
         is_number = ('int' in data_type or 'float' in data_type or 'number' in data_type)
         search_val = self._ui.scanVal_input.get_text()
-        scan_level = self.search_scope_scale.get_value()
 
         try:
             cmd = misc.check_scan_command(data_type, search_val, self._is_firstRun)
-            lvl = int(scan_level) + 1
         except Exception as e:
             # this is not quite good
             self._ui.show_error(e.args[0])
@@ -890,13 +917,13 @@ class GameConqueror(scanmem.Scanmem):
 
         # set scan options only when first scan, since this will reset backend
         if self._is_firstRun:
-            self._is_firstRun = False
-            #self.apply_scan_settings(data_type, lvl, is_number)
+            self.apply_scan_settings(data_type, is_number)
 
-        emsg = self.start_scanning(cmd)
-        if  emsg:
+        _, emsg = self.start_scanning(cmd)
+        if emsg:
             self._ui.show_error(emsg)
         else:
+            self._is_firstRun = False
             self.set_ui_deactive()
             GLib.timeout_add(misc.PROGRESS_WATCH_MS, self.progress_watcher)
 
@@ -908,9 +935,7 @@ class GameConqueror(scanmem.Scanmem):
                     self._ui.scanVal_input, self._ui.  scanRes_tree, self._ui.get_object('buttonGrid'),
                     self._ui.mmedit_window]:
             wid.set_sensitive(active)
-        # Replace scan_button with stop_button
-        self._ui.scan_button.set_visible(active)
-        self._ui.stop_button.set_visible(not active)
+        self._ui.scan_button.set_label('🔎' if active else '⛔')
 
     def update_scan_result(self, m_count: int = 0):
         self._ui.main_window.set_title(misc.ltr('Found: %d')% m_count)
@@ -997,8 +1022,8 @@ class GameConqueror(scanmem.Scanmem):
     def read_value(self, addr:str, in_type:str, val:int|str, out_type:str):
         size = misc.get_type_size(in_type, val)
         # ----
-        emsg, buf = self.read_memory(addr, size)
-        if emsg:
+        buf,emsg = self.read_memory(addr, size)
+        if  emsg:
             self._ui.show_error(emsg)
         #----
         return misc.bytes2value(out_type, buf)
@@ -1016,9 +1041,9 @@ class GameConqueror(scanmem.Scanmem):
 
 if __name__ == '__main__':
     # Parse parameters
-    pid, dbg = misc.INIT_ARGS.split(';')
+    args = misc.parse_env_args()
     # Init application
-    gc_instance = GameConqueror( pid, dbg == '1' )
+    gc_instance = GameConqueror( args )
     try:
         # Open socket and wait clients
         gc_instance.socket_server()

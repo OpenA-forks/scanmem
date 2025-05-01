@@ -23,11 +23,15 @@ import os, struct, platform, locale
 
 SEARCH_SCOPE_NAMES = ['Basic', 'Normal', 'ReadOnly', 'Full']
 
-LOCK_FLAG_TYPES = ['=', '+', '-']
+SCAN_MATCH_TYPES   = ['=', '<', '>', '≠', '≤', '≥', '+', '–']
+SCAN_MATCH_TOOLTIP = ['Equal', 'Less than', 'Greater than', 'NotEqual', 'Less or equal', 'Greater or equal', 'Increased by', 'Decreased by']
 
-SCAN_VALUE_TYPES = ['int8', 'int16', 'int32', 'int64', 'float', 'float32', 'float64', 'number', 'bytearray', 'string']
+SCAN_VALUE_TYPES   = ['Int8', 'Int16', 'Int32', 'Int64', 'Fp32', 'Fp64', 'Number', 'String', 'Hexdum']
+NUMBER_TYPE_NAMES  = ['byte', 'half' , 'word' , 'long', 'single', 'double']
+ARRAY_TYPE_NAMES   = ['ascii chars' , 'bytes array']
 
-MEMORY_TYPES = ['int8', 'uint8','int16', 'uint16', 'int32', 'uint32','int64', 'uint64','float32', 'float64', 'bytearray', 'string']
+SCAN_VALUE_TOOLTIP = NUMBER_TYPE_NAMES + ['any'] + ARRAY_TYPE_NAMES
+CHEAT_LIST_TOOLTIP = NUMBER_TYPE_NAMES + ARRAY_TYPE_NAMES
 
 # 0: sizes in bytes of integer and float types
 # 1: struct format characters for convert typenames
@@ -48,13 +52,19 @@ TYPENAMES_S2G = {
     'string':'string'
 }
 
-DOMAIN_TRS = os.environ['SCANMEM_GETTEXT']
+DOMAIN_TRS = os.environ['SCANMEM_DOMAIN_TS']
 LOCALE_DIR = os.environ['SCANMEM_LOCALEDIR']
-USER_CFG   = os.environ['SCANMEM_USER_CFG']
-UI_GTK_XML = os.environ['SCANMEM_UI_GTK']
-SM_VERSION = os.environ['SCANMEM_VERSION']
-SM_HOMEURL = os.environ['SCANMEM_HOMEPAGE']
-INIT_ARGS  = os.environ['SCANMEM_INIT_ARGS']
+SMUSER_CFG = os.environ['SCANMEM_USER_CFG']
+APP_UI_DIR = os.environ['SCANMEM_UI_DIR']
+
+# exported from a bash script
+def parse_env_args():
+    pid, dbg = os.environ['SCANMEM_INIT_ARGS'].split(';')
+    return (pid, dbg == '1')
+
+def get_ui_xml_path(tk: str):
+    """ Returns the interface file path for a given toolkit. """
+    return os.path.join(APP_UI_DIR, f'{tk}.interface.gameconqueror.xml')
 
 PROGRESS_WATCH_MS = 100   # for scan progress updates
 LIVE_CHECKER_MS   = 2500  # for read(update)/write(lock)

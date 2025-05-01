@@ -15,6 +15,7 @@ set(UI_DATA
 	"icons/GameConqueror.svg"
 	"icons/GC-logo.svg"
 	"icons/GC-mono.svg"
+	"icons/GC-lame.svg"
 	${CMAKE_CURRENT_BINARY_DIR}/${UI_GTK_XML} )
 
 set(PY_MODULES

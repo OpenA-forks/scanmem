@@ -68,9 +68,8 @@ pk_scanmem() {
 py_gameconqueror()
 {
   export SCANMEM_USER_CFG="$CONFIG"
-  export SCANMEM_UI_GTK="$APPDIR/ui/@UI_GTK_XML@"
-  export SCANMEM_VERSION="$VERSION"
-  export SCANMEM_GETTEXT="$APPNAME"
+  export SCANMEM_UI_DIR="$APPDIR/ui"
+  export SCANMEM_DOMAIN_TS="$APPNAME"
   export SCANMEM_LOCALEDIR="$DATADIR/locale"
   export SCANMEM_HOMEPAGE="$HOMEURL"
   export SCANMEM_SOCKET="$SOCKET"
